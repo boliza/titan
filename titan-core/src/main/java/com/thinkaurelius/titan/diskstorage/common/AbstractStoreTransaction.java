@@ -7,7 +7,7 @@ import com.thinkaurelius.titan.diskstorage.keycolumnvalue.StoreTxConfig;
 import com.thinkaurelius.titan.diskstorage.util.TimeUtility;
 
 /**
- * Abstract implementation of {@link StoreTransaction} to be used as the basis for more specific implementations.
+ * Abstract implementation of {@link com.thinkaurelius.titan.diskstorage.keycolumnvalue.StoreTransaction} to be used as the basis for more specific implementations.
  *
  * @author Matthias Broecheler (me@matthiasb.com)
  */
@@ -19,6 +19,10 @@ public abstract class AbstractStoreTransaction implements StoreTransaction {
     public AbstractStoreTransaction(StoreTxConfig config) {
         Preconditions.checkNotNull(config);
         this.config = config;
+    }
+
+    @Override
+    public void clear(){
     }
 
     @Override

@@ -1028,6 +1028,7 @@ public class StandardTitanTx extends TitanBlueprintsTransaction {
             }
             throw new TitanException("Could not commit transaction due to exception during persistence", e);
         } finally {
+            txHandle.clear();
             close();
             if (null != config.getMetricsPrefix() && !success) {
                 MetricManager.INSTANCE.getCounter(config.getMetricsPrefix(), "tx", "commit.exceptions").inc();

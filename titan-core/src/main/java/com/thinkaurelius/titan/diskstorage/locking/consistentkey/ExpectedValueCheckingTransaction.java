@@ -21,9 +21,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * A {@link StoreTransaction} that supports locking via
- * {@link LocalLockMediator} and writing and reading lock records in a
- * {@link ExpectedValueCheckingStore}.
+ * A {@link com.thinkaurelius.titan.diskstorage.keycolumnvalue.StoreTransaction} that supports locking via
+ * {@link com.thinkaurelius.titan.diskstorage.locking.LocalLockMediator} and writing and reading lock records in a
+ * {@link com.thinkaurelius.titan.diskstorage.locking.consistentkey.ExpectedValueCheckingStore}.
  * <p/>
  * <p/>
  * <b>This class is not safe for concurrent use by multiple threads.
@@ -170,6 +170,12 @@ public class ExpectedValueCheckingTransaction implements StoreTransaction {
     }
 
     @Override
+    public void clear() {
+        baseTx.clear();
+        consistentTx.clear();
+    }
+
+    @Override
     public void flush() throws StorageException {
         baseTx.flush();
         consistentTx.flush();
@@ -178,13 +184,13 @@ public class ExpectedValueCheckingTransaction implements StoreTransaction {
 
     /**
      * Tells whether this transaction has been used in a
-     * {@link ExpectedValueCheckingStore#mutate(StaticBuffer, List, List, StoreTransaction)}
+     * {@link com.thinkaurelius.titan.diskstorage.locking.consistentkey.ExpectedValueCheckingStore#mutate(com.thinkaurelius.titan.diskstorage.StaticBuffer, java.util.List, java.util.List, com.thinkaurelius.titan.diskstorage.keycolumnvalue.StoreTransaction)}
      * call. When this returns true, the transaction is no longer allowed in
      * calls to
-     * {@link ExpectedValueCheckingStore#acquireLock(StaticBuffer, StaticBuffer, StaticBuffer, StoreTransaction)}.
+     * {@link com.thinkaurelius.titan.diskstorage.locking.consistentkey.ExpectedValueCheckingStore#acquireLock(com.thinkaurelius.titan.diskstorage.StaticBuffer, com.thinkaurelius.titan.diskstorage.StaticBuffer, com.thinkaurelius.titan.diskstorage.StaticBuffer, com.thinkaurelius.titan.diskstorage.keycolumnvalue.StoreTransaction)}.
      *
      * @return False until
-     *         {@link ExpectedValueCheckingStore#mutate(StaticBuffer, List, List, StoreTransaction)}
+     *         {@link com.thinkaurelius.titan.diskstorage.locking.consistentkey.ExpectedValueCheckingStore#mutate(com.thinkaurelius.titan.diskstorage.StaticBuffer, java.util.List, java.util.List, com.thinkaurelius.titan.diskstorage.keycolumnvalue.StoreTransaction)}
      *         is called on this transaction instance. Returns true forever
      *         after.
      */
@@ -194,13 +200,13 @@ public class ExpectedValueCheckingTransaction implements StoreTransaction {
 
     /**
      * Signals the transaction that it has been used in a call to
-     * {@link ExpectedValueCheckingStore#mutate(StaticBuffer, List, List, StoreTransaction)}
+     * {@link com.thinkaurelius.titan.diskstorage.locking.consistentkey.ExpectedValueCheckingStore#mutate(com.thinkaurelius.titan.diskstorage.StaticBuffer, java.util.List, java.util.List, com.thinkaurelius.titan.diskstorage.keycolumnvalue.StoreTransaction)}
      * . This transaction can't be used in subsequent calls to
-     * {@link ExpectedValueCheckingStore#acquireLock(StaticBuffer, StaticBuffer, StaticBuffer, StoreTransaction)}
+     * {@link com.thinkaurelius.titan.diskstorage.locking.consistentkey.ExpectedValueCheckingStore#acquireLock(com.thinkaurelius.titan.diskstorage.StaticBuffer, com.thinkaurelius.titan.diskstorage.StaticBuffer, com.thinkaurelius.titan.diskstorage.StaticBuffer, com.thinkaurelius.titan.diskstorage.keycolumnvalue.StoreTransaction)}
      * .
      * <p/>
      * Calling this method at the appropriate time is handled automatically by
-     * {@link ExpectedValueCheckingStore}. Titan users don't need to call this
+     * {@link com.thinkaurelius.titan.diskstorage.locking.consistentkey.ExpectedValueCheckingStore}. Titan users don't need to call this
      * method by hand.
      */
     public void mutationStarted() {

@@ -9,6 +9,7 @@ import com.thinkaurelius.titan.diskstorage.indexing.RawQuery;
 import com.thinkaurelius.titan.diskstorage.keycolumnvalue.*;
 import com.thinkaurelius.titan.diskstorage.util.BackendOperation;
 import com.thinkaurelius.titan.diskstorage.util.ByteBufferUtil;
+
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -86,6 +87,12 @@ public class BackendTransaction implements TransactionHandle {
     public void commit() throws StorageException {
         storeTx.commit();
         for (IndexTransaction itx : indexTx.values()) itx.commit();
+    }
+
+    @Override
+    public void clear() {
+        storeTx.clear();
+        for (IndexTransaction itx : indexTx.values()) itx.clear();
     }
 
     @Override

@@ -18,6 +18,14 @@ public interface TransactionHandle {
     public void commit() throws StorageException;
 
     /**
+     * Clear the transaction.
+     *
+     * Call after commit just for clear some field,almost use in {@link com.thinkaurelius.titan.diskstorage.keycolumnvalue.BufferTransaction}
+     *
+     */
+    public void clear();
+
+    /**
      * Aborts (or rolls back) the transaction.
      * 
      * Call either this method or {@link #commit()} at most once per instance.
@@ -53,6 +61,11 @@ public interface TransactionHandle {
         @Override
         public void flush() throws StorageException {
         }
+
+        @Override
+        public void clear() {
+        }
+
     };
 
 }
