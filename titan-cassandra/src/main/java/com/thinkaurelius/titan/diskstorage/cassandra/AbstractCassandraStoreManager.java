@@ -108,6 +108,19 @@ public abstract class AbstractCassandraStoreManager extends DistributedStoreMana
             new ConfigOption<Integer>(CASSANDRA_NS, "compression-block-size",
             "The size of the compression blocks in kilobytes", ConfigOption.Type.FIXED, 64);
 
+    //compaction
+    public static final ConfigNamespace CF_COMPACTION_NS = new ConfigNamespace(CASSANDRA_NS,"compaction","The sstable compaction options",true);
+
+    public static final ConfigOption<String> CF_COMPACTION_STRATEGY =
+            new ConfigOption<String>(CF_COMPACTION_NS, "strategy",
+                    "The sstable compaction strategy Titan uses when compact column families sstables.",
+                    ConfigOption.Type.FIXED, "SizeTieredCompactionStrategy");
+
+    public static final ConfigOption<List<String>> CF_COMPACTION_OPTIONS =
+            new ConfigOption<List<String>>(CF_COMPACTION_NS, "options",
+                    "The sstable compaction strategy options",
+                    ConfigOption.Type.FIXED, new ArrayList<String>(0));
+
     // SSL
     public static final ConfigNamespace SSL_NS =
             new ConfigNamespace(CASSANDRA_NS, "ssl", "Configuration options for SSL");

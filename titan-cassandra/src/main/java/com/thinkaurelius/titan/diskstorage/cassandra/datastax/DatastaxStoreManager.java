@@ -35,17 +35,19 @@ public class DatastaxStoreManager extends AbstractCassandraStoreManager {
     private static final Logger log = LoggerFactory.getLogger(DatastaxStoreManager.class);
 
     private static final String SELECT_LOCAL = "SELECT partitioner FROM system.local WHERE key='local'";
+    private static final String CREATE_KEYSPACE = "CREATE KEYSPACE IF NOT EXISTS %s WITH REPLICATION = {'class':'%s'%s}";
+    private static final String CREATE_TABLE = "CREATE TABLE IF NOT EXISTS %s (key blob,column1 blob,value blob,PRIMARY KEY (key,column1)) WITH comment = 'column family %s' ";
 
     //Config for datastax
-    public static final ConfigNamespace DATASTAX_NS =
-            new ConfigNamespace(CASSANDRA_NS, "datastax", "datastax-specific Cassandra options");
+    public static final ConfigNamespace DATASTAX_NS = new ConfigNamespace(CASSANDRA_NS, "datastax", "datastax-specific Cassandra options");
 
     private final Cluster cluster;
     private final Map<String, DatastaxKeyColumnValueStore> openStores;
 
-    public DatastaxStoreManager(Configuration config) {
+    public DatastaxStoreManager(Configuration config) throws BackendException {
         super(config);
         cluster = Cluster.builder().addContactPoints(StringUtils.join(hostnames, ",")).build();
+        ensureKeyspaceExists();
         openStores = new ConcurrentHashMap<String, DatastaxKeyColumnValueStore>(8);
     }
 
@@ -86,7 +88,13 @@ public class DatastaxStoreManager extends AbstractCassandraStoreManager {
 
     @Override
     public KeyColumnValueStore openDatabase(String name) throws BackendException {
-        return null;
+        DatastaxKeyColumnValueStore store = openStores.get(name);
+        if (store == null) {
+            ensureColumnFamilyExists(name);
+            store = new DatastaxKeyColumnValueStore(name, keySpaceName, cluster, this);
+            openStores.put(name, store);
+        }
+        return store;
     }
 
     @Override
@@ -119,6 +127,54 @@ public class DatastaxStoreManager extends AbstractCassandraStoreManager {
     public List<KeyRange> getLocalKeyPartition() throws BackendException {
         throw new UnsupportedOperationException();
     }
+
+    private void ensureKeyspaceExists() throws BackendException {
+        StringBuilder sob = new StringBuilder(40);
+        for (Map.Entry<String, String> entry : strategyOptions.entrySet()) {
+            sob.append(String.format(",'%s':'%s'", entry.getKey(), entry.getValue()));
+        }
+
+        Session session = cluster.connect();
+        try {
+            session.execute(String.format(CREATE_KEYSPACE,
+                    keySpaceName,
+                    storageConfig.get(REPLICATION_STRATEGY),
+                    sob.toString()));
+        } catch (Exception e) {
+            throw new PermanentBackendException(e);
+        } finally {
+            session.close();
+        }
+    }
+
+    private void ensureColumnFamilyExists(String name) throws BackendException {
+        StringBuilder cob = new StringBuilder();
+        if (compressionEnabled) {
+            cob.append(String.format(" AND compression = {'sstable_compression':'%s', 'chunk_length_kb':'%s'}", compressionClass, compressionChunkSizeKB));
+        }
+        if (storageConfig.has(CF_COMPACTION_STRATEGY, name)) {
+            cob.append(String.format(" And compaction = {'class','%s'", storageConfig.get(CF_COMPACTION_STRATEGY, name)));
+            if (storageConfig.has(CF_COMPACTION_OPTIONS, name)) {
+                List<String> options = storageConfig.get(CF_COMPACTION_OPTIONS, name);
+                if (options.size() % 2 != 0)
+                    throw new IllegalArgumentException(CF_COMPACTION_OPTIONS.getName() + "." + name + " should have even number of elements.");
+                for (int i = 0; i < options.size(); i += 2) {
+                    cob.append(String.format(",'%s':%s", options.get(i), options.get(i + 1)));
+                }
+            }
+            cob.append("}");
+        }
+
+        Session session = cluster.connect(keySpaceName);
+        try {
+            session.execute(String.format(CREATE_TABLE, name, cob.toString()));
+        } catch (Exception e) {
+            throw new PermanentBackendException(e);
+        } finally {
+            session.close();
+        }
+    }
+
 }
 
 
