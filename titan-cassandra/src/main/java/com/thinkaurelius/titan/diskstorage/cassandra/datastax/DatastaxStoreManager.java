@@ -1,8 +1,14 @@
 package com.thinkaurelius.titan.diskstorage.cassandra.datastax;
 
+import static com.thinkaurelius.titan.graphdb.configuration.GraphDatabaseConfiguration.STORAGE_PORT;
+
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+
+import javax.net.ssl.SSLContext;
 
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
@@ -14,7 +20,9 @@ import org.slf4j.LoggerFactory;
 
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.KeyspaceMetadata;
+import com.datastax.driver.core.PlainTextAuthProvider;
 import com.datastax.driver.core.Row;
+import com.datastax.driver.core.SSLOptions;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.TableMetadata;
 import com.thinkaurelius.titan.diskstorage.BackendException;
@@ -23,6 +31,7 @@ import com.thinkaurelius.titan.diskstorage.StaticBuffer;
 import com.thinkaurelius.titan.diskstorage.TemporaryBackendException;
 import com.thinkaurelius.titan.diskstorage.cassandra.AbstractCassandraStoreManager;
 import com.thinkaurelius.titan.diskstorage.configuration.ConfigNamespace;
+import com.thinkaurelius.titan.diskstorage.configuration.ConfigOption;
 import com.thinkaurelius.titan.diskstorage.configuration.Configuration;
 import com.thinkaurelius.titan.diskstorage.keycolumnvalue.KCVMutation;
 import com.thinkaurelius.titan.diskstorage.keycolumnvalue.KeyColumnValueStore;
@@ -39,15 +48,50 @@ public class DatastaxStoreManager extends AbstractCassandraStoreManager {
     private static final String CREATE_KEYSPACE = "CREATE KEYSPACE IF NOT EXISTS %s WITH REPLICATION = {'class':'%s'%s}";
     private static final String CREATE_TABLE = "CREATE TABLE IF NOT EXISTS %s (key blob,column1 blob,value blob,PRIMARY KEY (key,column1)) WITH comment = 'column family %s' ";
 
+    private static final int NATIVE_TRANSPORT_PORT = 9042;
+
     //Config for datastax
     public static final ConfigNamespace DATASTAX_NS = new ConfigNamespace(CASSANDRA_NS, "datastax", "datastax-specific Cassandra options");
+
+    /**
+     * Default name for the Cassandra cluster //TODO should move to Cassandra Store Manager
+     * <p/>
+     */
+    public static final ConfigOption<String> CLUSTER_NAME =
+            new ConfigOption<String>(DATASTAX_NS, "cluster-name",
+                    "Default name for the Cassandra cluster",
+                    ConfigOption.Type.MASKABLE, "Titan Cluster");
 
     private final Cluster cluster;
     private final Map<String, DatastaxKeyColumnValueStore> openStores;
 
     public DatastaxStoreManager(Configuration config) throws BackendException {
         super(config);
-        cluster = Cluster.builder().addContactPoints(StringUtils.join(hostnames, ",")).build();
+        Cluster.Builder builder = Cluster.builder();
+        builder.addContactPoints(StringUtils.join(hostnames, ","));
+        builder.withPort(config.has(STORAGE_PORT) ? config.get(STORAGE_PORT) : NATIVE_TRANSPORT_PORT);
+        builder.withClusterName(config.get(CLUSTER_NAME));
+
+        if (hasAuthentication()) {
+            builder.withAuthProvider(new PlainTextAuthProvider(username, password));
+        }
+
+        if (config.get(SSL_ENABLED)) {
+            try {
+                builder.withSSL(
+                        new SSLOptions(
+                                SSLContext.getInstance(
+                                        config.get(SSL_TRUSTSTORE_LOCATION),
+                                        config.get(SSL_TRUSTSTORE_PASSWORD)),
+                                SSLOptions.DEFAULT_SSL_CIPHER_SUITES));
+            } catch (NoSuchAlgorithmException e) {
+                throw new TemporaryBackendException(e);
+            } catch (NoSuchProviderException e) {
+                throw new TemporaryBackendException(e);
+            }
+        }
+
+        cluster = builder.build();
         ensureKeyspaceExists();
         openStores = new ConcurrentHashMap<String, DatastaxKeyColumnValueStore>(8);
     }
