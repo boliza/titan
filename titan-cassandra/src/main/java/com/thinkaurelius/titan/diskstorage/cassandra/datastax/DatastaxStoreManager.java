@@ -20,6 +20,7 @@ import com.datastax.driver.core.TableMetadata;
 import com.thinkaurelius.titan.diskstorage.BackendException;
 import com.thinkaurelius.titan.diskstorage.PermanentBackendException;
 import com.thinkaurelius.titan.diskstorage.StaticBuffer;
+import com.thinkaurelius.titan.diskstorage.TemporaryBackendException;
 import com.thinkaurelius.titan.diskstorage.cassandra.AbstractCassandraStoreManager;
 import com.thinkaurelius.titan.diskstorage.configuration.ConfigNamespace;
 import com.thinkaurelius.titan.diskstorage.configuration.Configuration;
@@ -136,12 +137,14 @@ public class DatastaxStoreManager extends AbstractCassandraStoreManager {
 
         Session session = cluster.connect();
         try {
+            log.debug("Checking and create keyspace {}", keySpaceName);
             session.execute(String.format(CREATE_KEYSPACE,
                     keySpaceName,
                     storageConfig.get(REPLICATION_STRATEGY),
                     sob.toString()));
         } catch (Exception e) {
-            throw new PermanentBackendException(e);
+            log.debug("Failed to check or create keyspace {}", keySpaceName);
+            throw new TemporaryBackendException(e);
         } finally {
             session.close();
         }
@@ -167,9 +170,11 @@ public class DatastaxStoreManager extends AbstractCassandraStoreManager {
 
         Session session = cluster.connect(keySpaceName);
         try {
+            log.debug("Checking and adding column family {} to keyspace {}", name, keySpaceName);
             session.execute(String.format(CREATE_TABLE, name, cob.toString()));
         } catch (Exception e) {
-            throw new PermanentBackendException(e);
+            log.debug("Failed to create column family {} to keyspace {}", name, keySpaceName);
+            throw new TemporaryBackendException(e);
         } finally {
             session.close();
         }

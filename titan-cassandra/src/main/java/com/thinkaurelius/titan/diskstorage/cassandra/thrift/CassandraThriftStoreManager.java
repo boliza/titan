@@ -21,6 +21,8 @@ import com.thinkaurelius.titan.diskstorage.keycolumnvalue.KeyRange;
 import com.thinkaurelius.titan.graphdb.configuration.PreInitializeConfigOptions;
 import com.thinkaurelius.titan.util.system.NetworkUtil;
 
+import org.apache.cassandra.db.compaction.LeveledCompactionStrategy;
+import org.apache.cassandra.db.compaction.SizeTieredCompactionStrategy;
 import org.apache.cassandra.dht.AbstractByteOrderedPartitioner;
 import org.apache.cassandra.dht.ByteOrderedPartitioner;
 import org.apache.cassandra.dht.IPartitioner;
@@ -85,7 +87,7 @@ public class CassandraThriftStoreManager extends AbstractCassandraStoreManager {
      */
     public static final ConfigOption<Integer> THRIFT_FRAME_SIZE =
             new ConfigOption<Integer>(THRIFT_NS, "frame-size",
-            "The thrift frame size in mega bytes", ConfigOption.Type.MASKABLE, 15);
+                    "The thrift frame size in mega bytes", ConfigOption.Type.MASKABLE, 15);
 
 
     public static final ConfigNamespace CPOOL_NS =
@@ -93,61 +95,61 @@ public class CassandraThriftStoreManager extends AbstractCassandraStoreManager {
 
     public static final ConfigOption<PoolExhaustedAction> CPOOL_WHEN_EXHAUSTED =
             new ConfigOption<PoolExhaustedAction>(CPOOL_NS, "when-exhausted",
-            "What to do when clients concurrently request more active connections than are allowed " +
-            "by the pool.  The value must be one of BLOCK, FAIL, or GROW.",
-            ConfigOption.Type.MASKABLE, PoolExhaustedAction.class, PoolExhaustedAction.BLOCK);
+                    "What to do when clients concurrently request more active connections than are allowed " +
+                            "by the pool.  The value must be one of BLOCK, FAIL, or GROW.",
+                    ConfigOption.Type.MASKABLE, PoolExhaustedAction.class, PoolExhaustedAction.BLOCK);
 
     public static final ConfigOption<Integer> CPOOL_MAX_TOTAL =
             new ConfigOption<Integer>(CPOOL_NS, "max-total",
-            "Max number of allowed Thrift connections, idle or active (-1 to leave undefined)",
-            ConfigOption.Type.MASKABLE, 32);
+                    "Max number of allowed Thrift connections, idle or active (-1 to leave undefined)",
+                    ConfigOption.Type.MASKABLE, 32);
 
     public static final ConfigOption<Integer> CPOOL_MAX_ACTIVE =
             new ConfigOption<Integer>(CPOOL_NS, "max-active",
-            "Maximum number of concurrently in-use connections (-1 to leave undefined)",
-            ConfigOption.Type.MASKABLE, -1);
+                    "Maximum number of concurrently in-use connections (-1 to leave undefined)",
+                    ConfigOption.Type.MASKABLE, -1);
 
     public static final ConfigOption<Integer> CPOOL_MAX_IDLE =
             new ConfigOption<Integer>(CPOOL_NS, "max-idle",
-            "Maximum number of concurrently idle connections (-1 to leave undefined)",
-            ConfigOption.Type.MASKABLE, -1);
+                    "Maximum number of concurrently idle connections (-1 to leave undefined)",
+                    ConfigOption.Type.MASKABLE, -1);
 
     public static final ConfigOption<Integer> CPOOL_MIN_IDLE =
             new ConfigOption<Integer>(CPOOL_NS, "min-idle",
-            "Minimum number of idle connections the pool attempts to maintain",
-            ConfigOption.Type.MASKABLE, 0);
+                    "Minimum number of idle connections the pool attempts to maintain",
+                    ConfigOption.Type.MASKABLE, 0);
 
     // Wart: allowing -1 like commons-pool's convention precludes using StandardDuration
     public static final ConfigOption<Long> CPOOL_MAX_WAIT =
             new ConfigOption<Long>(CPOOL_NS, "max-wait",
-            "Maximum number of milliseconds to block when " + ConfigElement.getPath(CPOOL_WHEN_EXHAUSTED) +
-            " is set to BLOCK.  Has no effect when set to actions besides BLOCK.  Set to -1 to wait indefinitely.",
-            ConfigOption.Type.MASKABLE, -1L);
+                    "Maximum number of milliseconds to block when " + ConfigElement.getPath(CPOOL_WHEN_EXHAUSTED) +
+                            " is set to BLOCK.  Has no effect when set to actions besides BLOCK.  Set to -1 to wait indefinitely.",
+                    ConfigOption.Type.MASKABLE, -1L);
 
     // Wart: allowing -1 like commons-pool's convention precludes using StandardDuration
     public static final ConfigOption<Long> CPOOL_EVICTOR_PERIOD =
             new ConfigOption<Long>(CPOOL_NS, "evictor-period",
-            "Approximate number of milliseconds between runs of the idle connection evictor.  " +
-            "Set to -1 to never run the idle connection evictor.",
-            ConfigOption.Type.MASKABLE, 30L * 1000L);
+                    "Approximate number of milliseconds between runs of the idle connection evictor.  " +
+                            "Set to -1 to never run the idle connection evictor.",
+                    ConfigOption.Type.MASKABLE, 30L * 1000L);
 
     // Wart: allowing -1 like commons-pool's convention precludes using StandardDuration
     public static final ConfigOption<Long> CPOOL_MIN_EVICTABLE_IDLE_TIME =
             new ConfigOption<Long>(CPOOL_NS, "min-evictable-idle-time",
-            "Minimum number of milliseconds a connection must be idle before it is eligible for " +
-            "eviction.  See also " + ConfigElement.getPath(CPOOL_EVICTOR_PERIOD) + ".  Set to -1 to never evict " +
-            "idle connections.", ConfigOption.Type.MASKABLE, 60L * 1000L);
+                    "Minimum number of milliseconds a connection must be idle before it is eligible for " +
+                            "eviction.  See also " + ConfigElement.getPath(CPOOL_EVICTOR_PERIOD) + ".  Set to -1 to never evict " +
+                            "idle connections.", ConfigOption.Type.MASKABLE, 60L * 1000L);
 
     public static final ConfigOption<Boolean> CPOOL_IDLE_TESTS =
             new ConfigOption<Boolean>(CPOOL_NS, "idle-test",
-            "Whether the idle connection evictor validates idle connections and drops those that fail to validate",
-            ConfigOption.Type.MASKABLE, false);
+                    "Whether the idle connection evictor validates idle connections and drops those that fail to validate",
+                    ConfigOption.Type.MASKABLE, false);
 
     public static final ConfigOption<Integer> CPOOL_IDLE_TESTS_PER_EVICTION_RUN =
             new ConfigOption<Integer>(CPOOL_NS, "idle-tests-per-eviction-run",
-            "When the value is negative, e.g. -n, roughly one nth of the idle connections are tested per run.  " +
-            "When the value is positive, e.g. n, the min(idle-count, n) connections are tested per run.",
-            ConfigOption.Type.MASKABLE, 0);
+                    "When the value is negative, e.g. -n, roughly one nth of the idle connections are tested per run.  " +
+                            "When the value is positive, e.g. n, the min(idle-count, n) connections are tested per run.",
+                    ConfigOption.Type.MASKABLE, 0);
 
 
     private final Map<String, CassandraThriftKeyColumnValueStore> openStores;
@@ -162,13 +164,13 @@ public class CassandraThriftStoreManager extends AbstractCassandraStoreManager {
          * This is eventually passed to Thrift's TSocket constructor. The
          * constructor parameter is of type int.
          */
-        int thriftTimeoutMS = (int)config.get(GraphDatabaseConfiguration.CONNECTION_TIMEOUT).getLength(TimeUnit.MILLISECONDS);
+        int thriftTimeoutMS = (int) config.get(GraphDatabaseConfiguration.CONNECTION_TIMEOUT).getLength(TimeUnit.MILLISECONDS);
 
         thriftFrameSizeBytes = config.get(THRIFT_FRAME_SIZE) * 1024 * 1024;
 
         CTConnectionFactory.Config factoryConfig = new CTConnectionFactory.Config(hostnames, port, username, password)
-                                                                            .setTimeoutMS(thriftTimeoutMS)
-                                                                            .setFrameSize(thriftFrameSizeBytes);
+                .setTimeoutMS(thriftTimeoutMS)
+                .setFrameSize(thriftFrameSizeBytes);
 
         if (config.get(SSL_ENABLED)) {
             factoryConfig.setSSLTruststoreLocation(config.get(SSL_TRUSTSTORE_LOCATION));
@@ -195,8 +197,8 @@ public class CassandraThriftStoreManager extends AbstractCassandraStoreManager {
         // Only watch the ring and change endpoints with BOP
         if (getCassandraPartitioner() instanceof ByteOrderedPartitioner) {
             deployment = (hostnames.length == 1)// mark deployment as local only in case we have byte ordered partitioner and local connection
-                          ? (NetworkUtil.isLocalConnection(hostnames[0])) ? Deployment.LOCAL : Deployment.REMOTE
-                          : Deployment.REMOTE;
+                    ? (NetworkUtil.isLocalConnection(hostnames[0])) ? Deployment.LOCAL : Deployment.REMOTE
+                    : Deployment.REMOTE;
         } else {
             deployment = Deployment.REMOTE;
         }
@@ -343,7 +345,7 @@ public class CassandraThriftStoreManager extends AbstractCassandraStoreManager {
 
         try {
             conn = pool.borrowObject(keySpaceName);
-            List<TokenRange> ranges  = conn.getClient().describe_ring(keySpaceName);
+            List<TokenRange> ranges = conn.getClient().describe_ring(keySpaceName);
             List<KeyRange> keyRanges = new ArrayList<KeyRange>(ranges.size());
 
             for (TokenRange range : ranges) {
@@ -552,6 +554,22 @@ public class CassandraThriftStoreManager extends AbstractCassandraStoreManager {
         if (compressionEnabled) {
             compressionOptions.put("sstable_compression", compressionClass)
                     .put("chunk_length_kb", Integer.toString(compressionChunkSizeKB));
+        }
+
+        if (storageConfig.has(CF_COMPACTION_STRATEGY, cfName)) {
+            createColumnFamily.setCompaction_strategy(storageConfig.get(CF_COMPACTION_STRATEGY, cfName));
+            if (storageConfig.has(CF_COMPACTION_OPTIONS, cfName)) {
+                List<String> options = storageConfig.get(CF_COMPACTION_OPTIONS, cfName);
+                if (options.size() % 2 != 0) {
+                    throw new IllegalArgumentException(CF_COMPACTION_OPTIONS.getName() + "." + cfName + " should have even number of elements.");
+                }
+                Map<String, String> compactionOptions = new HashMap<String, String>(options.size() / 2);
+
+                for (int i = 0; i < options.size(); i += 2) {
+                    compactionOptions.put(options.get(i), options.get(i + 1));
+                }
+                createColumnFamily.setCompaction_strategy_options(compactionOptions);
+            }
         }
 
         createColumnFamily.setCompression_options(compressionOptions.build());

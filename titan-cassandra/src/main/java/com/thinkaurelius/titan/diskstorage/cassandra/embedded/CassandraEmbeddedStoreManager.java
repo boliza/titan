@@ -24,6 +24,9 @@ import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.RowMutation;
 import org.apache.cassandra.db.SliceByNamesReadCommand;
+import org.apache.cassandra.db.compaction.AbstractCompactionStrategy;
+import org.apache.cassandra.db.compaction.LeveledCompactionStrategy;
+import org.apache.cassandra.db.compaction.SizeTieredCompactionStrategy;
 import org.apache.cassandra.db.filter.NamesQueryFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.BytesType;
@@ -310,6 +313,26 @@ public class CassandraEmbeddedStoreManager extends AbstractCassandraStoreManager
         }
         cfm.compressionParameters(cp);
 
+        if (storageConfig.has(CF_COMPACTION_STRATEGY, columnfamilyName)) {
+            cfm.compactionStrategyClass(
+                    "LeveledCompactionStrategy".equals(storageConfig.get(CF_COMPACTION_STRATEGY, columnfamilyName)) ?
+                            LeveledCompactionStrategy.class :
+                            SizeTieredCompactionStrategy.class
+            );
+            if (storageConfig.has(CF_COMPACTION_OPTIONS, columnfamilyName)) {
+                List<String> options = storageConfig.get(CF_COMPACTION_OPTIONS, columnfamilyName);
+                if (options.size() % 2 != 0) {
+                    throw new IllegalArgumentException(CF_COMPACTION_OPTIONS.getName() + "." + columnfamilyName + " should have even number of elements.");
+                }
+                Map<String, String> compactionOptions = new HashMap<String, String>(options.size() / 2);
+
+                for (int i = 0; i < options.size(); i += 2) {
+                    compactionOptions.put(options.get(i), options.get(i + 1));
+                }
+                cfm.compactionStrategyOptions(compactionOptions);
+            }
+        }
+
         try {
             cfm.addDefaultIndexNames();
         } catch (ConfigurationException e) {
@@ -365,7 +388,7 @@ public class CassandraEmbeddedStoreManager extends AbstractCassandraStoreManager
                 ss.add(ByteBufferUtil.zeroByteBuffer(1));
                 NamesQueryFilter nqf = new NamesQueryFilter(ss);
                 SliceByNamesReadCommand cmd = new SliceByNamesReadCommand(ks, ByteBufferUtil.zeroByteBuffer(1), cf, 1L, nqf);
-                StorageProxy.read(ImmutableList.<ReadCommand> of(cmd), ConsistencyLevel.QUORUM);
+                StorageProxy.read(ImmutableList.<ReadCommand>of(cmd), ConsistencyLevel.QUORUM);
                 log.info("Read on CF {} in KS {} succeeded", cf, ks);
                 return;
             } catch (Throwable t) {
