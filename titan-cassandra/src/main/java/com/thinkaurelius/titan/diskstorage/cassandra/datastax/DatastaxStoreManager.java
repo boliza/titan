@@ -1,42 +1,13 @@
 package com.thinkaurelius.titan.diskstorage.cassandra.datastax;
 
-import static com.thinkaurelius.titan.graphdb.configuration.GraphDatabaseConfiguration.BASIC_METRICS;
-import static com.thinkaurelius.titan.graphdb.configuration.GraphDatabaseConfiguration.METRICS_JMX_ENABLED;
-
-import java.lang.reflect.Constructor;
-import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
-import javax.net.ssl.SSLContext;
-
-import org.apache.cassandra.dht.IPartitioner;
-import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.utils.FBUtilities;
-import org.apache.commons.lang.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.datastax.driver.core.Cluster;
-import com.datastax.driver.core.HostDistance;
-import com.datastax.driver.core.KeyspaceMetadata;
-import com.datastax.driver.core.PlainTextAuthProvider;
-import com.datastax.driver.core.PoolingOptions;
-import com.datastax.driver.core.ProtocolOptions;
-import com.datastax.driver.core.QueryOptions;
-import com.datastax.driver.core.Row;
-import com.datastax.driver.core.SSLOptions;
-import com.datastax.driver.core.Session;
-import com.datastax.driver.core.SocketOptions;
-import com.datastax.driver.core.TableMetadata;
+import com.datastax.driver.core.*;
 import com.datastax.driver.core.policies.LoadBalancingPolicy;
 import com.datastax.driver.core.policies.LoggingRetryPolicy;
 import com.datastax.driver.core.policies.ReconnectionPolicy;
 import com.datastax.driver.core.policies.RetryPolicy;
 import com.thinkaurelius.titan.diskstorage.BackendException;
+import com.thinkaurelius.titan.diskstorage.Entry;
+import com.thinkaurelius.titan.diskstorage.EntryMetaData;
 import com.thinkaurelius.titan.diskstorage.PermanentBackendException;
 import com.thinkaurelius.titan.diskstorage.StaticBuffer;
 import com.thinkaurelius.titan.diskstorage.TemporaryBackendException;
@@ -49,6 +20,27 @@ import com.thinkaurelius.titan.diskstorage.keycolumnvalue.KeyColumnValueStore;
 import com.thinkaurelius.titan.diskstorage.keycolumnvalue.KeyRange;
 import com.thinkaurelius.titan.diskstorage.keycolumnvalue.StoreTransaction;
 import com.thinkaurelius.titan.graphdb.configuration.PreInitializeConfigOptions;
+import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.utils.FBUtilities;
+import org.apache.commons.lang.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.net.ssl.SSLContext;
+import java.lang.reflect.Constructor;
+import java.nio.ByteBuffer;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+import static com.datastax.driver.core.querybuilder.QueryBuilder.*;
+import static com.thinkaurelius.titan.diskstorage.cassandra.CassandraTransaction.getTx;
+import static com.thinkaurelius.titan.graphdb.configuration.GraphDatabaseConfiguration.BASIC_METRICS;
+import static com.thinkaurelius.titan.graphdb.configuration.GraphDatabaseConfiguration.METRICS_JMX_ENABLED;
 
 @PreInitializeConfigOptions
 public class DatastaxStoreManager extends AbstractCassandraStoreManager {
@@ -407,7 +399,62 @@ public class DatastaxStoreManager extends AbstractCassandraStoreManager {
 
     @Override
     public void mutateMany(Map<String, Map<StaticBuffer, KCVMutation>> mutations, StoreTransaction txh) throws BackendException {
+        ConsistencyLevel consistencyLevel = getTx(txh).getWriteConsistencyLevel().getDatastax();
 
+        BatchStatement batchStatement = new BatchStatement();//max is 65536
+        batchStatement.setSerialConsistencyLevel(consistencyLevel);
+
+        final MaskedTimestamp commitTime = new MaskedTimestamp(txh);
+
+        for (Map.Entry<String, Map<StaticBuffer, KCVMutation>> batchEntry : mutations.entrySet()) {
+            String table = batchEntry.getKey();
+
+            for (Map.Entry<StaticBuffer, KCVMutation> entry : batchEntry.getValue().entrySet()) {
+                KCVMutation mutation = entry.getValue();
+                ByteBuffer key = entry.getKey().asByteBuffer();
+
+                if (mutation.hasDeletions()) {
+
+                    for (StaticBuffer buffer : mutation.getDeletions()) {
+                        batchStatement.add(
+                                delete()
+                                        .from(table)
+                                        .using(timestamp(commitTime.getDeletionTime(times.getUnit())))
+                                        .where(eq("key", key)).and(eq("column1", buffer.asByteBuffer())));
+                    }
+                }
+
+                if (mutation.hasAdditions()) {
+                    for (Entry e : mutation.getAdditions()) {
+                        Integer ttl = (Integer) e.getMetaData().get(EntryMetaData.TTL);
+
+                        if (null != ttl && ttl > 0) {
+                            batchStatement.add(
+                                    insertInto(table)
+                                            .using(timestamp(commitTime.getAdditionTime(times.getUnit()))).and(ttl(ttl))
+                                            .values(
+                                                    new String[]{"key", "column1", "value"},
+                                                    new ByteBuffer[]{key, e.getColumnAs(StaticBuffer.BB_FACTORY), e.getValueAs(StaticBuffer.BB_FACTORY)}));
+                        } else {
+                            batchStatement.add(
+                                    insertInto(table)
+                                            .using(timestamp(commitTime.getAdditionTime(times.getUnit())))
+                                            .values(
+                                                    new String[]{"key", "column1", "value"},
+                                                    new ByteBuffer[]{key, e.getColumnAs(StaticBuffer.BB_FACTORY), e.getValueAs(StaticBuffer.BB_FACTORY)}));
+                        }
+                    }
+                }
+            }
+        }
+        Session session = cluster.connect(keySpaceName);
+        try {
+            session.execute(batchStatement);
+        } catch (Exception e) {
+            throw new TemporaryBackendException(e);
+        } finally {
+            session.close();
+        }
     }
 
     @Override

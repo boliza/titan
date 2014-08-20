@@ -6,6 +6,7 @@ import java.util.Map;
 import javax.annotation.Nullable;
 
 import com.datastax.driver.core.Cluster;
+import com.datastax.driver.core.Session;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
@@ -23,25 +24,21 @@ import com.thinkaurelius.titan.diskstorage.keycolumnvalue.StoreTransaction;
 
 public class DatastaxKeyColumnValueStore implements KeyColumnValueStore {
 
-    private final Cluster cluster;
-    private final String keySpaceName;
-    private final String columnFamilyName;
+    private final String table;
     private final DatastaxStoreManager storeManager;
+    private final Session session;
 
-    DatastaxKeyColumnValueStore(String columnFamilyName,
+    DatastaxKeyColumnValueStore(String table,
                                 String keySpaceName,
                                 Cluster cluster,
                                 DatastaxStoreManager storeManager) {
-        this.cluster = cluster;
-        this.keySpaceName = keySpaceName;
-        this.columnFamilyName = columnFamilyName;
+        this.table = table;
         this.storeManager = storeManager;
-
+        this.session = cluster.connect(keySpaceName);
     }
 
     @Override
     public void close() throws BackendException {
-        //Do nothing
     }
 
     @Override
@@ -51,18 +48,22 @@ public class DatastaxKeyColumnValueStore implements KeyColumnValueStore {
     }
 
     @Override
-    public Map<StaticBuffer, EntryList> getSlice(List<StaticBuffer> keys, SliceQuery query, StoreTransaction txh) throws BackendException {
+    public Map<StaticBuffer, EntryList> getSlice(List<StaticBuffer> keys,
+                                                 SliceQuery query,
+                                                 StoreTransaction txh) throws BackendException {
         return getNamesSlice(keys, query, txh);
     }
 
     public Map<StaticBuffer, EntryList> getNamesSlice(StaticBuffer key,
-                                                      SliceQuery query, StoreTransaction txh) throws BackendException {
+                                                      SliceQuery query,
+                                                      StoreTransaction txh) throws BackendException {
         return getNamesSlice(ImmutableList.of(key), query, txh);
     }
 
 
     public Map<StaticBuffer, EntryList> getNamesSlice(List<StaticBuffer> keys,
-                                                      SliceQuery query, StoreTransaction txh) throws BackendException {
+                                                      SliceQuery query,
+                                                      StoreTransaction txh) throws BackendException {
         return null;
     }
 
@@ -72,7 +73,7 @@ public class DatastaxKeyColumnValueStore implements KeyColumnValueStore {
     }
 
     public void mutateMany(Map<StaticBuffer, KCVMutation> mutations, StoreTransaction txh) throws BackendException {
-        storeManager.mutateMany(ImmutableMap.of(columnFamilyName, mutations), txh);
+        storeManager.mutateMany(ImmutableMap.of(table, mutations), txh);
     }
 
     @Override
@@ -87,16 +88,12 @@ public class DatastaxKeyColumnValueStore implements KeyColumnValueStore {
 
     @Override
     public KeyIterator getKeys(KeyRangeQuery query, StoreTransaction txh) throws BackendException {
-        // this query could only be done when byte-ordering partitioner is used
-        // because Cassandra operates on tokens internally which means that even contiguous
-        // range of keys (e.g. time slice) with random partitioner could produce disjoint set of tokens
-        // returning ambiguous results to the user.
         return null;
     }
 
     @Override
     public String getName() {
-        return columnFamilyName;
+        return table;
     }
 
 }
