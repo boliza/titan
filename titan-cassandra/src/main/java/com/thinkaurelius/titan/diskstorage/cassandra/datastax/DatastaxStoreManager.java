@@ -1,6 +1,42 @@
 package com.thinkaurelius.titan.diskstorage.cassandra.datastax;
 
-import com.datastax.driver.core.*;
+import static com.datastax.driver.core.querybuilder.QueryBuilder.*;
+import static com.thinkaurelius.titan.diskstorage.cassandra.CassandraTransaction.getTx;
+import static com.thinkaurelius.titan.graphdb.configuration.GraphDatabaseConfiguration.BASIC_METRICS;
+import static com.thinkaurelius.titan.graphdb.configuration.GraphDatabaseConfiguration.METRICS_JMX_ENABLED;
+
+import java.lang.reflect.Constructor;
+import java.nio.ByteBuffer;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+import javax.net.ssl.SSLContext;
+
+import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.utils.FBUtilities;
+import org.apache.commons.lang.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.datastax.driver.core.BatchStatement;
+import com.datastax.driver.core.Cluster;
+import com.datastax.driver.core.ConsistencyLevel;
+import com.datastax.driver.core.HostDistance;
+import com.datastax.driver.core.KeyspaceMetadata;
+import com.datastax.driver.core.PlainTextAuthProvider;
+import com.datastax.driver.core.PoolingOptions;
+import com.datastax.driver.core.ProtocolOptions;
+import com.datastax.driver.core.QueryOptions;
+import com.datastax.driver.core.Row;
+import com.datastax.driver.core.SSLOptions;
+import com.datastax.driver.core.Session;
+import com.datastax.driver.core.SocketOptions;
+import com.datastax.driver.core.TableMetadata;
 import com.datastax.driver.core.policies.LoadBalancingPolicy;
 import com.datastax.driver.core.policies.LoggingRetryPolicy;
 import com.datastax.driver.core.policies.ReconnectionPolicy;
@@ -20,27 +56,6 @@ import com.thinkaurelius.titan.diskstorage.keycolumnvalue.KeyColumnValueStore;
 import com.thinkaurelius.titan.diskstorage.keycolumnvalue.KeyRange;
 import com.thinkaurelius.titan.diskstorage.keycolumnvalue.StoreTransaction;
 import com.thinkaurelius.titan.graphdb.configuration.PreInitializeConfigOptions;
-import org.apache.cassandra.dht.IPartitioner;
-import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.utils.FBUtilities;
-import org.apache.commons.lang.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import javax.net.ssl.SSLContext;
-import java.lang.reflect.Constructor;
-import java.nio.ByteBuffer;
-import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
-import static com.datastax.driver.core.querybuilder.QueryBuilder.*;
-import static com.thinkaurelius.titan.diskstorage.cassandra.CassandraTransaction.getTx;
-import static com.thinkaurelius.titan.graphdb.configuration.GraphDatabaseConfiguration.BASIC_METRICS;
-import static com.thinkaurelius.titan.graphdb.configuration.GraphDatabaseConfiguration.METRICS_JMX_ENABLED;
 
 @PreInitializeConfigOptions
 public class DatastaxStoreManager extends AbstractCassandraStoreManager {
@@ -253,6 +268,7 @@ public class DatastaxStoreManager extends AbstractCassandraStoreManager {
                     "com.datastax.driver.core.policies.RoundRobinPolicy");
 
     private final Cluster cluster;
+    private final Session session;
     private final Map<String, DatastaxKeyColumnValueStore> openStores;
 
     public DatastaxStoreManager(Configuration config) throws BackendException {
@@ -348,6 +364,9 @@ public class DatastaxStoreManager extends AbstractCassandraStoreManager {
 
         cluster = builder.build();
         ensureKeyspaceExists();
+
+        session = cluster.connect(keySpaceName);
+
         openStores = new ConcurrentHashMap<String, DatastaxKeyColumnValueStore>(8);
     }
 
@@ -391,7 +410,7 @@ public class DatastaxStoreManager extends AbstractCassandraStoreManager {
         DatastaxKeyColumnValueStore store = openStores.get(name);
         if (store == null) {
             ensureColumnFamilyExists(name);
-            store = new DatastaxKeyColumnValueStore(name, keySpaceName, cluster, this);
+            store = new DatastaxKeyColumnValueStore(name, session, this);
             openStores.put(name, store);
         }
         return store;
@@ -447,13 +466,10 @@ public class DatastaxStoreManager extends AbstractCassandraStoreManager {
                 }
             }
         }
-        Session session = cluster.connect(keySpaceName);
         try {
             session.execute(batchStatement);
         } catch (Exception e) {
             throw new TemporaryBackendException(e);
-        } finally {
-            session.close();
         }
     }
 
@@ -522,15 +538,12 @@ public class DatastaxStoreManager extends AbstractCassandraStoreManager {
             cob.append("}");
         }
 
-        Session session = cluster.connect(keySpaceName);
         try {
             log.debug("Checking and adding column family {} to keyspace {}", name, keySpaceName);
             session.execute(String.format(CREATE_TABLE, name, cob.toString()));
         } catch (Exception e) {
             log.debug("Failed to create column family {} to keyspace {}", name, keySpaceName);
             throw new TemporaryBackendException(e);
-        } finally {
-            session.close();
         }
     }
 
