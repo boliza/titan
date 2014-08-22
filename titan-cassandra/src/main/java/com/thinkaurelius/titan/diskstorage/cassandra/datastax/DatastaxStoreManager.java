@@ -267,6 +267,8 @@ public class DatastaxStoreManager extends AbstractCassandraStoreManager {
                     ConfigOption.Type.MASKABLE,
                     "com.datastax.driver.core.policies.RoundRobinPolicy");
 
+
+
     private final Cluster cluster;
     private final Session session;
     private final Map<String, DatastaxKeyColumnValueStore> openStores;

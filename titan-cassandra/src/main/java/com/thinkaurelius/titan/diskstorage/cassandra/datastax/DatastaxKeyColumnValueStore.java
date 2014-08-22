@@ -10,6 +10,7 @@ import static com.thinkaurelius.titan.diskstorage.cassandra.CassandraTransaction
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -18,7 +19,7 @@ import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.datastax.driver.core.BoundStatement;
+import com.datastax.driver.core.ConsistencyLevel;
 import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
@@ -50,12 +51,12 @@ public class DatastaxKeyColumnValueStore implements KeyColumnValueStore {
 
     private static final Logger log = LoggerFactory.getLogger(DatastaxKeyColumnValueStore.class);
 
-
     private final String table;
     private final DatastaxStoreManager storeManager;
     private final Session session;
     private final DatastaxGetter getter;
     private final PreparedStatement keyRangeStatement;
+    private final PreparedStatement sliceStatement;
 
     DatastaxKeyColumnValueStore(String table,
                                 Session session,
@@ -65,6 +66,7 @@ public class DatastaxKeyColumnValueStore implements KeyColumnValueStore {
         this.session = session;
         this.getter = new DatastaxGetter(storeManager.getMetaDataSchema(table));
         this.keyRangeStatement = session.prepare("select * from " + table + " where token(key) >= token(?) and token(key) <= token(?) limit ?");
+        this.sliceStatement = session.prepare("select * from " + table + " where column1 >= ? and column1 <= ? limit ? allow filtering");
     }
 
     @Override
@@ -128,7 +130,23 @@ public class DatastaxKeyColumnValueStore implements KeyColumnValueStore {
 
     @Override
     public KeyIterator getKeys(@Nullable SliceQuery sliceQuery, StoreTransaction txh) throws BackendException {
-        return null;
+        log.warn("Bad Request:this query as it might involve data filtering and thus may have unpredictable performance.");
+
+        ResultSet resultSet;
+        if (sliceQuery == null) {
+            resultSet = session.execute(select().from(table).setConsistencyLevel(ConsistencyLevel.ONE));
+        } else {
+            resultSet = session.execute(
+                    sliceStatement
+                            .bind(
+                                    sliceQuery.getSliceStart().asByteBuffer(),
+                                    sliceQuery.getSliceEnd().asByteBuffer(),
+                                    sliceQuery.getLimit())
+                            .setConsistencyLevel(ConsistencyLevel.ONE)
+            );
+        }
+        Map<ByteBuffer, List<Row>> rowMap = rowToMap(resultSet.all(), 1 << 4);
+        return new DatastaxIterator(rowMap, sliceQuery);
     }
 
     @Override
@@ -136,11 +154,13 @@ public class DatastaxKeyColumnValueStore implements KeyColumnValueStore {
         if (storeManager.getPartitioner() != Partitioner.BYTEORDER) {
             throw new PermanentBackendException("getKeys(KeyRangeQuery could only be used with byte-ordering partitioner.");
         }
-        ResultSet resultSet = session.execute(keyRangeStatement.bind(
-                query.getKeyStart().asByteBuffer(),
-                query.getKeyEnd().asByteBuffer(),
-                query.getLimit())
-                .setConsistencyLevel(getTx(txh).getReadConsistencyLevel().getDatastax()));
+        ResultSet resultSet = session.execute(
+                keyRangeStatement
+                        .bind(
+                                query.getKeyStart().asByteBuffer(),
+                                query.getKeyEnd().asByteBuffer(),
+                                query.getLimit())
+                        .setConsistencyLevel(getTx(txh).getReadConsistencyLevel().getDatastax()));
         Map<ByteBuffer, List<Row>> rowMap = rowToMap(resultSet.all(), 1 << 4);
         return new DatastaxIterator(rowMap, query);
     }
@@ -165,32 +185,81 @@ public class DatastaxKeyColumnValueStore implements KeyColumnValueStore {
         return rowMap;
     }
 
-    private static class DatastaxIterator implements KeyIterator {
+    private class DatastaxIterator implements KeyIterator {
 
-        
+        private Map<ByteBuffer, List<Row>> rowMap;
+        private SliceQuery sliceQuery;
+        private Iterator<ByteBuffer> iterator;
+        private ByteBuffer key;
 
-        public DatastaxIterator(Map<ByteBuffer, List<Row>> rowMap, SliceQuery query) {
+        private boolean isClosed;
 
+        public DatastaxIterator(Map<ByteBuffer, List<Row>> rowMap, SliceQuery sliceQuery) {
+            this.rowMap = rowMap;
+            this.sliceQuery = sliceQuery;
+            iterator = rowMap.keySet().iterator();
         }
 
         @Override
         public RecordIterator<Entry> getEntries() {
-            return null;
-        }
+            ensureOpen();
+            return new RecordIterator<Entry>() {
 
-        @Override
-        public void close() throws IOException {
+                private final Iterator<Entry> entryIterator = CassandraHelper.makeEntryIterator(
+                        rowMap.get(key),
+                        getter,
+                        sliceQuery.getSliceEnd(),
+                        sliceQuery.getLimit());
 
+                @Override
+                public void close() throws IOException {
+                    isClosed = true;
+                }
+
+                @Override
+                public boolean hasNext() {
+                    ensureOpen();
+                    return entryIterator.hasNext();
+                }
+
+                @Override
+                public Entry next() {
+                    return entryIterator.next();
+                }
+
+                @Override
+                public void remove() {
+                    throw new UnsupportedOperationException();
+                }
+            };
         }
 
         @Override
         public boolean hasNext() {
-            return false;
+            ensureOpen();
+            return iterator.hasNext();
         }
 
         @Override
         public StaticBuffer next() {
-            return null;
+            ensureOpen();
+            key = iterator.next();
+            return StaticArrayBuffer.of(key);
+        }
+
+        @Override
+        public void close() {
+            isClosed = true;
+        }
+
+        @Override
+        public void remove() {
+            throw new UnsupportedOperationException();
+        }
+
+        private void ensureOpen() {
+            if (isClosed)
+                throw new IllegalStateException("Iterator has been closed.");
         }
     }
 
