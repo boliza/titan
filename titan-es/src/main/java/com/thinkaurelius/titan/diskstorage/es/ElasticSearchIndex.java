@@ -1,12 +1,14 @@
 package com.thinkaurelius.titan.diskstorage.es;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.thinkaurelius.titan.core.schema.Mapping;
 import com.thinkaurelius.titan.core.Order;
 import com.thinkaurelius.titan.core.TitanException;
 import com.thinkaurelius.titan.core.attribute.*;
+import com.thinkaurelius.titan.core.schema.Parameter;
 import com.thinkaurelius.titan.diskstorage.*;
 import com.thinkaurelius.titan.diskstorage.configuration.ConfigNamespace;
 import com.thinkaurelius.titan.diskstorage.configuration.ConfigOption;
@@ -54,6 +56,7 @@ import org.elasticsearch.search.sort.SortOrder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nullable;
 import java.io.*;
 import java.util.*;
 import java.util.ArrayList;
@@ -351,8 +354,19 @@ public class ElasticSearchIndex implements IndexProvider {
             if (AttributeUtil.isString(dataType)) {
                 log.debug("Registering string type for {}", key);
                 mapping.field("type", "string");
-                if (map==Mapping.STRING)
-                    mapping.field("index","not_analyzed");
+                if (map == Mapping.STRING) {
+                    mapping.field("index", "not_analyzed");
+                }else if (map == Mapping.TEXT) {
+                    Parameter parameter = Iterables.find(ImmutableList.copyOf(information.getParameters()),new Predicate<Parameter>() {
+                        @Override
+                        public boolean apply(@Nullable Parameter element) {
+                            return "index".equals(element.getKey());
+                        }
+                    });
+                    if (parameter != null) {
+                        mapping.field("index", (String)parameter.getValue());
+                    }
+                }
             } else if (dataType == Float.class) {
                 log.debug("Registering float type for {}", key);
                 mapping.field("type", "float");
