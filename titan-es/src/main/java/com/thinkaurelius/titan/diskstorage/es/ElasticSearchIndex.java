@@ -163,6 +163,12 @@ public class ElasticSearchIndex implements IndexProvider {
 
 //    public static final String ES_YML_KEY = "config-file";
 
+    private static final Predicate INDEX_PREDICATE =new Predicate<Parameter>() {
+        @Override
+        public boolean apply(@Nullable Parameter element) {
+            return "index".equals(element.getKey());
+        }
+    };
 
     private final Node node;
     private final Client client;
@@ -357,12 +363,7 @@ public class ElasticSearchIndex implements IndexProvider {
                 if (map == Mapping.STRING) {
                     mapping.field("index", "not_analyzed");
                 }else if (map == Mapping.TEXT) {
-                    Parameter parameter = Iterables.find(ImmutableList.copyOf(information.getParameters()),new Predicate<Parameter>() {
-                        @Override
-                        public boolean apply(@Nullable Parameter element) {
-                            return "index".equals(element.getKey());
-                        }
-                    });
+                    Parameter parameter = Iterables.find(ImmutableList.copyOf(information.getParameters()),INDEX_PREDICATE);
                     if (parameter != null) {
                         mapping.field("index", (String)parameter.getValue());
                     }
