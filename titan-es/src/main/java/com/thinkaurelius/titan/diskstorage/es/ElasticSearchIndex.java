@@ -256,12 +256,11 @@ public class ElasticSearchIndex implements IndexProvider {
                 if (map == Mapping.STRING) {
                     mapping.field("index", "not_analyzed");
                 }else if (map == Mapping.TEXT) {
-                    Parameter parameter = Iterables.find(ImmutableList.copyOf(information.getParameters()),ANALYZER_PREDICATE);
-                    if (parameter != null) {
-                        mapping.field("analyzer", (String)parameter.getValue());
+                    Iterable<Parameter> parameters = Iterables.filter(ImmutableList.copyOf(information.getParameters()),ANALYZER_PREDICATE);
+                    if( Iterables.size(parameters) == 1) {
+                        mapping.field("analyzer", (String)Iterables.getOnlyElement(parameters).getValue());
                     }
                 }
-
             } else if (dataType == Float.class) {
                 log.debug("Registering float type for {}", key);
                 mapping.field("type", "float");
