@@ -64,6 +64,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import javax.annotation.Nullable;
+
 /**
  * @author Matthias Broecheler (me@matthiasb.com)
  */
@@ -163,10 +165,11 @@ public class ElasticSearchIndex implements IndexProvider {
 
 //    public static final String ES_YML_KEY = "config-file";
 
-    private static final Predicate INDEX_PREDICATE =new Predicate<Parameter>() {
+
+    private static final Predicate ANALYZER_PREDICATE =new Predicate<Parameter>() {
         @Override
         public boolean apply(@Nullable Parameter element) {
-            return "index".equals(element.getKey());
+            return element != null && "analyzer".equals(element.getKey());
         }
     };
 
@@ -363,9 +366,9 @@ public class ElasticSearchIndex implements IndexProvider {
                 if (map == Mapping.STRING) {
                     mapping.field("index", "not_analyzed");
                 }else if (map == Mapping.TEXT) {
-                    Parameter parameter = Iterables.find(ImmutableList.copyOf(information.getParameters()),INDEX_PREDICATE);
-                    if (parameter != null) {
-                        mapping.field("index", (String)parameter.getValue());
+                    Iterable<Parameter> parameters = Iterables.filter(ImmutableList.copyOf(information.getParameters()),ANALYZER_PREDICATE);
+                    if( Iterables.size(parameters) == 1) {
+                        mapping.field("analyzer", (String)Iterables.getOnlyElement(parameters).getValue());
                     }
                 }
             } else if (dataType == Float.class) {
@@ -428,6 +431,8 @@ public class ElasticSearchIndex implements IndexProvider {
                     } else { //double or float
                         builder.field(add.field, ((Number) add.value).doubleValue());
                     }
+                } else if (AttributeUtil.isBoolean(add.value)) {
+                    builder.field(add.field, ((Boolean) add.value).booleanValue());
                 } else if (AttributeUtil.isString(add.value)) {
                     builder.field(add.field, (String) add.value);
                 } else if (add.value instanceof Geoshape) {
@@ -605,6 +610,9 @@ public class ElasticSearchIndex implements IndexProvider {
                     default:
                         throw new IllegalArgumentException("Unexpected relation: " + numRel);
                 }
+            } else if (AttributeUtil.isBoolean(value)) {
+                Preconditions.checkArgument(titanPredicate == Cmp.EQUAL, "Relation not supported on boolean types: " + titanPredicate);
+                return FilterBuilders.termFilter(key,value);
             } else if (value instanceof String) {
                 Mapping map = Mapping.getMapping(informations.get(key));
                 if ((map==Mapping.DEFAULT || map==Mapping.TEXT) && !titanPredicate.toString().startsWith("CONTAINS"))
@@ -725,6 +733,8 @@ public class ElasticSearchIndex implements IndexProvider {
 
         if (Number.class.isAssignableFrom(dataType)) {
             if (titanPredicate instanceof Cmp) return true;
+        } else if(AttributeUtil.isBoolean(dataType)) {
+            return titanPredicate == Cmp.EQUAL;
         } else if (dataType == Geoshape.class) {
             return titanPredicate == Geo.WITHIN;
         } else if (AttributeUtil.isString(dataType)) {
@@ -744,7 +754,7 @@ public class ElasticSearchIndex implements IndexProvider {
     public boolean supports(KeyInformation information) {
         Class<?> dataType = information.getDataType();
         Mapping mapping = Mapping.getMapping(information);
-        if (Number.class.isAssignableFrom(dataType) || dataType == Geoshape.class) {
+        if (Number.class.isAssignableFrom(dataType) || dataType == Geoshape.class || AttributeUtil.isBoolean(dataType)) {
             if (mapping==Mapping.DEFAULT) return true;
         } else if (AttributeUtil.isString(dataType)) {
             if (mapping==Mapping.DEFAULT || mapping==Mapping.STRING || mapping==Mapping.TEXT) return true;
