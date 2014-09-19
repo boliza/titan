@@ -1,12 +1,14 @@
 package com.thinkaurelius.titan.diskstorage.es;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.thinkaurelius.titan.core.schema.Mapping;
 import com.thinkaurelius.titan.core.Order;
 import com.thinkaurelius.titan.core.TitanException;
 import com.thinkaurelius.titan.core.attribute.*;
+import com.thinkaurelius.titan.core.schema.Parameter;
 import com.thinkaurelius.titan.diskstorage.*;
 import com.thinkaurelius.titan.diskstorage.configuration.ConfigNamespace;
 import com.thinkaurelius.titan.diskstorage.configuration.ConfigOption;
@@ -38,7 +40,6 @@ import org.elasticsearch.action.update.UpdateRequestBuilder;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.client.transport.TransportClient;
 import org.elasticsearch.common.settings.ImmutableSettings;
-import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.transport.InetSocketTransportAddress;
 import org.elasticsearch.common.unit.DistanceUnit;
 import org.elasticsearch.common.xcontent.XContentBuilder;
@@ -60,6 +61,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+
+import javax.annotation.Nullable;
 
 /**
  * @author Matthias Broecheler (me@matthiasb.com)
@@ -159,6 +162,14 @@ public class ElasticSearchIndex implements IndexProvider {
     public static final int HOST_PORT_DEFAULT = 9300;
 
 //    public static final String ES_YML_KEY = "config-file";
+
+    private static final Predicate ANALYZER_PREDICATE =new Predicate<Parameter>() {
+        @Override
+        public boolean apply(@Nullable Parameter element) {
+            return element != null && "analyzer".equals(element.getKey());
+        }
+    };
+
 
 
     private final Node node;
@@ -351,8 +362,14 @@ public class ElasticSearchIndex implements IndexProvider {
             if (AttributeUtil.isString(dataType)) {
                 log.debug("Registering string type for {}", key);
                 mapping.field("type", "string");
-                if (map==Mapping.STRING)
-                    mapping.field("index","not_analyzed");
+                if (map == Mapping.STRING) {
+                    mapping.field("index", "not_analyzed");
+                }else if (map == Mapping.TEXT) {
+                    Iterable<Parameter> parameters = Iterables.filter(ImmutableList.copyOf(information.getParameters()),ANALYZER_PREDICATE);
+                    if( Iterables.size(parameters) == 1) {
+                        mapping.field("analyzer", (String)Iterables.getOnlyElement(parameters).getValue());
+                    }
+                }
             } else if (dataType == Float.class) {
                 log.debug("Registering float type for {}", key);
                 mapping.field("type", "float");
