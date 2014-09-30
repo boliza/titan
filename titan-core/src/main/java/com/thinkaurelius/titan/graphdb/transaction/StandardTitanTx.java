@@ -357,8 +357,13 @@ public class StandardTitanTx extends TitanBlueprintsTransaction implements TypeI
             MetricManager.INSTANCE.getCounter(config.getGroupName(), "db", "getVertexByID").inc();
         }
 
-        InternalVertex v = vertexCache.get(vertexid, externalVertexRetriever);
-        return (v.isRemoved()) ? null : v;
+        InternalVertex v = null;
+        try {
+            v = vertexCache.get(vertexid, externalVertexRetriever);
+        } catch (InvalidIDException e) {
+            log.warn("Illegal vertex ID", e);
+        }
+        return (null == v || v.isRemoved()) ? null : v;
     }
 
     private InternalVertex getExistingVertex(long vertexid) {
@@ -435,8 +440,6 @@ public class StandardTitanTx extends TitanBlueprintsTransaction implements TypeI
         Preconditions.checkArgument(vertexId == null || IDManager.VertexIDType.NormalVertex.is(vertexId), "Not a valid vertex id: %s", vertexId);
         Preconditions.checkArgument(vertexId == null || ((InternalVertexLabel)label).hasDefaultConfiguration(), "Cannot only use default vertex labels: %s",label);
         Preconditions.checkArgument(vertexId == null || !config.hasVerifyExternalVertexExistence() || !containsVertex(vertexId), "Vertex with given id already exists: %s", vertexId);
-        Preconditions.checkArgument(vertexId != null || !label.isPartitioned() || graph.getConfiguration().isClusterPartitioned(),
-                    "Explicit graph partitioning must be enabled to create a vertex with partitioned label %s", label.getName());
         StandardVertex vertex = new StandardVertex(this, IDManager.getTemporaryVertexID(IDManager.VertexIDType.NormalVertex, temporaryIds.nextID()), ElementLifeCycle.New);
         if (vertexId != null) {
             vertex.setId(vertexId);
