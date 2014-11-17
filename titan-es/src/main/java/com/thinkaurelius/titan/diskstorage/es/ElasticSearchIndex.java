@@ -2,6 +2,7 @@ package com.thinkaurelius.titan.diskstorage.es;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.thinkaurelius.titan.core.schema.Mapping;
@@ -119,10 +120,17 @@ public class ElasticSearchIndex implements IndexProvider {
 
 //    public static final String ES_YML_KEY = "config-file";
 
-    private static final Predicate ANALYZER_PREDICATE =new Predicate<Parameter>() {
+    private static final Predicate ANALYZER_PREDICATE = new Predicate<Parameter>() {
         @Override
         public boolean apply(@Nullable Parameter element) {
             return element != null && "analyzer".equals(element.getKey());
+        }
+    };
+
+    private static final Predicate SORT_PREDICATE = new Predicate<Parameter>() {
+        @Override
+        public boolean apply(@Nullable Parameter element) {
+            return element !=null && "sort".equals(element.getKey());
         }
     };
 
@@ -602,6 +610,15 @@ public class ElasticSearchIndex implements IndexProvider {
         else srb.setSize(maxResultsSize);
         srb.setNoFields();
         //srb.setExplain(true);
+
+        //sort field
+        if(query.getParameters() !=null && query.getParameters().length >0) {
+            Iterable<Parameter> sorts = Iterables.filter(ImmutableList.copyOf(query.getParameters()),SORT_PREDICATE);
+            for (Parameter sort : sorts) {
+                List<String> sv = Splitter.on(".").splitToList((String) sort.getValue());
+                srb.addSort(sv.get(0),SortOrder.valueOf(sv.get(1).toUpperCase()));
+            }
+        }
 
         SearchResponse response = srb.execute().actionGet();
         log.debug("Executed query [{}] in {} ms", query.getQuery(), response.getTookInMillis());
