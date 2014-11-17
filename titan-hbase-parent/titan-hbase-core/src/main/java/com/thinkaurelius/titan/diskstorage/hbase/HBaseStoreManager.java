@@ -301,7 +301,7 @@ public class HBaseStoreManager extends DistributedStoreManager implements KeyCol
         int keysLoaded=0;
         Map<String,Object> configSub = config.getSubset(HBASE_CONFIGURATION_NAMESPACE);
         for (Map.Entry<String,Object> entry : configSub.entrySet()) {
-            logger.debug("HBase configuration: setting {}={}", entry.getKey(), entry.getValue());
+            logger.info("HBase configuration: setting {}={}", entry.getKey(), entry.getValue());
             if (entry.getValue()==null) continue;
             hconf.set(entry.getKey(), entry.getValue().toString());
             keysLoaded++;
@@ -331,6 +331,12 @@ public class HBaseStoreManager extends DistributedStoreManager implements KeyCol
             openManagers.put(this, new Throwable("Manager Opened"));
             dumpOpenManagers();
         }
+
+        logger.debug("Dumping HBase config key=value pairs");
+        for (Map.Entry<String, String> entry : hconf) {
+            logger.debug("[HBaseConfig] " + entry.getKey() + "=" + entry.getValue());
+        }
+        logger.debug("End of HBase config key=value pairs");
 
         openStores = new ConcurrentHashMap<String, HBaseKeyColumnValueStore>();
     }

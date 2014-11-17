@@ -39,6 +39,10 @@ public class BaseKey extends BaseRelationType implements PropertyKey {
     public static final BaseKey SchemaDefinitionDesc =
             new BaseKey("SchemaDefinitionDescription", TypeDefinitionDescription.class, 35, Index.NONE, Cardinality.SINGLE);
 
+    public static final BaseKey SchemaUpdateTime =
+            new BaseKey("SchemaUpdateTimestamp", Long.class, 36, Index.NONE, Cardinality.SINGLE);
+
+
 
     private final Class<?> dataType;
     private final Index index;
@@ -92,6 +96,11 @@ public class BaseKey extends BaseRelationType implements PropertyKey {
 
         private final IndexField[] fields = {IndexField.of(BaseKey.this)};
 //        private final Set<TitanKey> fieldSet = ImmutableSet.of((TitanKey)SystemKey.this);
+
+        @Override
+        public String toString() {
+            return getName();
+        }
 
         @Override
         public long getID() {
@@ -160,7 +169,7 @@ public class BaseKey extends BaseRelationType implements PropertyKey {
 
         @Override
         public String getName() {
-            return "SystemIndex#"+getID();
+            return "SystemIndex#"+BaseKey.this.getName();
         }
 
         @Override

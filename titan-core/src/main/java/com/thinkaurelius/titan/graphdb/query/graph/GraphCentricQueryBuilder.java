@@ -132,11 +132,13 @@ public class GraphCentricQueryBuilder implements TitanGraphQuery<GraphCentricQue
 
     @Override
     public GraphCentricQueryBuilder orderBy(String key, Order order) {
+        Preconditions.checkArgument(tx.containsPropertyKey(key),"Provided key does not exist: %s",key);
         return orderBy(tx.getPropertyKey(key), order);
     }
 
     @Override
     public GraphCentricQueryBuilder orderBy(PropertyKey key, Order order) {
+        Preconditions.checkArgument(key!=null && order!=null,"Need to specify and key and an order");
         Preconditions.checkArgument(Comparable.class.isAssignableFrom(key.getDataType()),
                 "Can only order on keys with comparable data type. [%s] has datatype [%s]", key.getName(), key.getDataType());
         Preconditions.checkArgument(key.getCardinality()== Cardinality.SINGLE, "Ordering is undefined on multi-valued key [%s]", key.getName());
@@ -251,7 +253,7 @@ public class GraphCentricQueryBuilder implements TitanGraphQuery<GraphCentricQue
                 Set<Condition> subcover = Sets.newHashSet();
                 Object subcondition;
                 boolean supportsSort = orders.isEmpty();
-                //Check that this index actually applies
+                //Check that this index actually applies in case of a schema constraint
                 if (index.hasSchemaTypeConstraint()) {
                     TitanSchemaType type = index.getSchemaTypeConstraint();
                     boolean matchesTypeConstraint = false;
