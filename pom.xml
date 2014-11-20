@@ -15,6 +15,20 @@
     <name>Titan: Distributed Graph Database</name>
     <url>http://thinkaurelius.github.com/titan/</url>
 
+    <distributionManagement>
+        <!-- 执行deploy命令发布的位置 -->
+        <repository>
+            <id>releases</id>
+            <name>EEfung Release Distribution Repository</name>
+            <url>http://maven.eefung.com/content/repositories/releases</url>
+        </repository>
+        <snapshotRepository>
+            <id>snapshots</id>
+            <name>EEfung Snapshot Distribution Repository</name>
+            <url>http://maven.eefung.com/content/repositories/snapshots</url>
+        </snapshotRepository>
+    </distributionManagement>
+
     <description>
         Titan is a distributed graph database optimized for processing massive-scale graphs represented over a machine
         cluster.
