@@ -58,11 +58,13 @@ public class RawQuery extends BaseQuery {
 
         private final O result;
         private final double score;
+        private final long totalHits;
 
 
-        public Result(O result, double score) {
+        public Result(O result, double score,long totalHits) {
             this.result = result;
             this.score = score;
+            this.totalHits = totalHits;
         }
 
         public O getResult() {
@@ -71,6 +73,10 @@ public class RawQuery extends BaseQuery {
 
         public double getScore() {
             return score;
+        }
+
+        public long getTotalHits(){
+            return totalHits;
         }
     }
 

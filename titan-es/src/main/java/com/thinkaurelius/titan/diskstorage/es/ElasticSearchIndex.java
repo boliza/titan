@@ -749,7 +749,7 @@ public class ElasticSearchIndex implements IndexProvider {
             log.warn("Query result set truncated to first [{}] elements for query: {}", maxResultsSize, query);
         List<RawQuery.Result<String>> result = new ArrayList<RawQuery.Result<String>>(hits.hits().length);
         for (SearchHit hit : hits) {
-            result.add(new RawQuery.Result<String>(hit.id(),hit.getScore()));
+            result.add(new RawQuery.Result<String>(hit.id(),hit.getScore(),hits.totalHits()));
         }
         return result;
     }

@@ -186,7 +186,7 @@ public class IndexQueryBuilder extends BaseQuery implements TitanIndexQuery {
             @Nullable
             @Override
             public Result<TitanElement> apply(@Nullable RawQuery.Result result) {
-                return new ResultImpl<TitanElement>(conversionFct.apply(result.getResult()),result.getScore());
+                return new ResultImpl<TitanElement>(conversionFct.apply(result.getResult()),result.getScore(),result.getTotalHits());
             }
         }),new Predicate<Result<TitanElement>>() {
             @Override
@@ -223,10 +223,12 @@ public class IndexQueryBuilder extends BaseQuery implements TitanIndexQuery {
 
         private final V element;
         private final double score;
+        private final long totalHits;
 
-        private ResultImpl(V element, double score) {
+        private ResultImpl(V element, double score,long totalHits) {
             this.element = element;
             this.score = score;
+            this.totalHits = totalHits;
         }
 
         @Override
@@ -237,6 +239,11 @@ public class IndexQueryBuilder extends BaseQuery implements TitanIndexQuery {
         @Override
         public double getScore() {
             return score;
+        }
+
+        @Override
+        public long getTotalHits(){
+            return totalHits;
         }
     }
 }

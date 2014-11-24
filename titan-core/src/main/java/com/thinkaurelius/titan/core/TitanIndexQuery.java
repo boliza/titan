@@ -107,6 +107,14 @@ public interface TitanIndexQuery {
          */
         public double getScore();
 
+        /**
+         * Returns the totalHits to the query
+         * @TODO move to the result Iterable
+         *
+         * @return
+         */
+        public long getTotalHits();
+
     }
 
 

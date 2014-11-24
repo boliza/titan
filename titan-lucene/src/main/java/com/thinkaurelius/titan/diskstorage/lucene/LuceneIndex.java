@@ -504,7 +504,7 @@ public class LuceneIndex implements IndexProvider {
             log.debug("Executed query [{}] in {} ms",q, System.currentTimeMillis() - time);
             List<RawQuery.Result<String>> result = new ArrayList<RawQuery.Result<String>>(docs.scoreDocs.length);
             for (int i = offset; i < docs.scoreDocs.length; i++) {
-                result.add(new RawQuery.Result<String>(searcher.doc(docs.scoreDocs[i].doc).getField(DOCID).stringValue(),docs.scoreDocs[i].score));
+                result.add(new RawQuery.Result<String>(searcher.doc(docs.scoreDocs[i].doc).getField(DOCID).stringValue(),docs.scoreDocs[i].score,docs.totalHits));
             }
             return result;
         } catch (IOException e) {

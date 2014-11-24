@@ -648,7 +648,7 @@ public class IndexSerializer {
             @Nullable
             @Override
             public RawQuery.Result apply(@Nullable RawQuery.Result<String> result) {
-                return new RawQuery.Result(string2ElementId(result.getResult()), result.getScore());
+                return new RawQuery.Result(string2ElementId(result.getResult()), result.getScore(),result.getTotalHits());
             }
         });
     }
