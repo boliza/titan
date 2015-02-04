@@ -5,31 +5,27 @@ import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 import com.esotericsoftware.kryo.serializers.DefaultSerializers;
 import com.esotericsoftware.kryo.serializers.FieldSerializer;
+import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
-import com.google.common.collect.ImmutableList;
-import com.thinkaurelius.titan.core.*;
 import com.thinkaurelius.titan.diskstorage.ReadBuffer;
 import com.thinkaurelius.titan.diskstorage.StaticBuffer;
 import com.thinkaurelius.titan.diskstorage.WriteBuffer;
-import com.thinkaurelius.titan.graphdb.internal.ElementCategory;
-import com.thinkaurelius.titan.graphdb.internal.TitanSchemaCategory;
-import com.thinkaurelius.titan.graphdb.types.*;
-import com.tinkerpop.blueprints.Direction;
+import com.thinkaurelius.titan.graphdb.configuration.GraphDatabaseConfiguration;
+import com.thinkaurelius.titan.util.system.IOUtils;
 
+import java.io.Closeable;
 import java.lang.reflect.Constructor;
 import java.util.*;
 
-public class KryoSerializer {
+public class KryoSerializer implements Closeable {
 
     public static final int DEFAULT_MAX_OUTPUT_SIZE = 10 * 1024 * 1024; // 10 MB in bytes
     public static final int KRYO_ID_OFFSET = 50;
 
-    private final boolean registerRequired;
-    private final ThreadLocal<Kryo> kryos;
-    private final Map<Integer,TypeRegistration> registrations;
     private final int maxOutputSize;
+    private final KryoInstanceCache kryos;
 
     private static final StaticBuffer.Factory<Input> INPUT_FACTORY = new StaticBuffer.Factory<Input>() {
         @Override
@@ -40,37 +36,52 @@ public class KryoSerializer {
         }
     };
 
+    /**
+     * This constructor is no longer used within Titan and may go away in a future release.
+     */
+    @Deprecated
     public KryoSerializer(final List<Class> defaultRegistrations) {
         this(defaultRegistrations, false);
     }
 
-
+    /**
+     * This constructor is no longer used within Titan and may go away in a future release.
+     */
+    @Deprecated
     public KryoSerializer(final List<Class> defaultRegistrations, boolean registrationRequired) {
         this(defaultRegistrations, registrationRequired, DEFAULT_MAX_OUTPUT_SIZE);
     }
 
+    /**
+     * This constructor is no longer used within Titan and may go away in a future release.
+     */
+    @Deprecated
     public KryoSerializer(final List<Class> defaultRegistrations, boolean registrationRequired, int maxOutputSize) {
+        this(defaultRegistrations, registrationRequired, maxOutputSize, GraphDatabaseConfiguration.KRYO_INSTANCE_CACHE.getDefaultValue());
+    }
+
+    public KryoSerializer(final List<Class> defaultRegistrations, final boolean registrationRequired, int maxOutputSize, KryoInstanceCacheImpl kcache) {
         this.maxOutputSize = maxOutputSize;
-        this.registerRequired = registrationRequired;
-        this.registrations = new HashMap<Integer,TypeRegistration>();
 
         for (Class clazz : defaultRegistrations) {
 //            Preconditions.checkArgument(isValidClass(clazz),"Class does not have a default constructor: %s",clazz.getName());
             objectVerificationCache.put(clazz,Boolean.TRUE);
         }
 
-        kryos = new ThreadLocal<Kryo>() {
-            public Kryo initialValue() {
-                Kryo k = new Kryo();
-                k.setRegistrationRequired(registerRequired);
-                k.register(Class.class,new DefaultSerializers.ClassSerializer());
-                for (int i=0;i<defaultRegistrations.size();i++) {
+        Function<Kryo, ?> kryoInitFunc = new Function<Kryo, Void>() {
+            @Override
+            public Void apply(Kryo k) {
+                k.setRegistrationRequired(registrationRequired);
+                k.register(Class.class, new DefaultSerializers.ClassSerializer());
+                for (int i = 0; i < defaultRegistrations.size(); i++) {
                     Class clazz = defaultRegistrations.get(i);
                     k.register(clazz, KRYO_ID_OFFSET + i);
                 }
-                return k;
+                return null;
             }
         };
+
+        this.kryos = kcache.createManager(kryoInitFunc);
     }
 
     Kryo getKryo() {
@@ -173,6 +184,15 @@ public class KryoSerializer {
         }
     }
 
+    /**
+     * Release cached references to Kryo instances created by every thread
+     * that has executed methods on this KryoSerializer instance.
+     */
+    @Override
+    public void close() {
+        IOUtils.closeQuietly(kryos);
+    }
+
     private static class TypeRegistration {
 
         final Class type;
@@ -184,5 +204,4 @@ public class KryoSerializer {
         }
 
     }
-
 }

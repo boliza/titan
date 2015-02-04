@@ -9,6 +9,9 @@ import com.thinkaurelius.titan.core.*;
 import com.thinkaurelius.titan.core.Cardinality;
 import com.thinkaurelius.titan.core.schema.*;
 import com.thinkaurelius.titan.core.Multiplicity;
+import com.thinkaurelius.titan.diskstorage.configuration.Configuration;
+import com.thinkaurelius.titan.diskstorage.configuration.MergedConfiguration;
+import com.thinkaurelius.titan.diskstorage.util.StandardBaseTransactionConfig;
 import com.thinkaurelius.titan.diskstorage.util.StaticArrayEntry;
 import com.thinkaurelius.titan.diskstorage.log.Message;
 import com.thinkaurelius.titan.diskstorage.log.ReadMarker;
@@ -50,6 +53,8 @@ import com.thinkaurelius.titan.graphdb.types.system.BaseKey;
 import com.thinkaurelius.titan.graphdb.types.system.BaseRelationType;
 import com.thinkaurelius.titan.graphdb.types.vertices.TitanSchemaVertex;
 import com.thinkaurelius.titan.graphdb.util.ExceptionFactory;
+import com.thinkaurelius.titan.util.system.IOUtils;
+import com.thinkaurelius.titan.util.system.TXUtils;
 import com.tinkerpop.blueprints.Direction;
 import com.tinkerpop.blueprints.Features;
 
@@ -164,6 +169,7 @@ public class StandardTitanGraph extends TitanBlueprintsGraph {
             globalConfig.remove(REGISTRATION_TIME,config.getUniqueGraphId());
 
             super.shutdown();
+            IOUtils.closeQuietly(serializer);
             idAssigner.close();
             backend.close();
             queryCache.close();
@@ -285,20 +291,35 @@ public class StandardTitanGraph extends TitanBlueprintsGraph {
     private final SchemaCache.StoreRetrieval typeCacheRetrieval = new SchemaCache.StoreRetrieval() {
 
         @Override
-        public Long retrieveSchemaByName(String typeName, StandardTitanTx tx) {
-            tx.getTxHandle().disableCache(); //Disable cache to make sure that schema is only cached once and cache eviction works!
-            TitanVertex v = Iterables.getOnlyElement(tx.getVertices(BaseKey.SchemaName, typeName),null);
-            tx.getTxHandle().enableCache();
-            return v!=null?v.getLongId():null;
+        public Long retrieveSchemaByName(String typeName) {
+            // Get a consistent tx
+            Configuration customTxOptions = backend.getStoreFeatures().getKeyConsistentTxConfig();
+            StandardTitanTx consistentTx = null;
+            try {
+                consistentTx = StandardTitanGraph.this.newTransaction(new StandardTransactionBuilder(getConfiguration(),
+                        StandardTitanGraph.this, customTxOptions).setGroupName(GraphDatabaseConfiguration.METRICS_SCHEMA_PREFIX_DEFAULT));
+                consistentTx.getTxHandle().disableCache();
+                TitanVertex v = Iterables.getOnlyElement(consistentTx.getVertices(BaseKey.SchemaName, typeName), null);
+                return v!=null?v.getLongId():null;
+            } finally {
+                TXUtils.rollbackQuietly(consistentTx);
+            }
         }
 
         @Override
-        public EntryList retrieveSchemaRelations(final long schemaId, final BaseRelationType type, final Direction dir, final StandardTitanTx tx) {
+        public EntryList retrieveSchemaRelations(final long schemaId, final BaseRelationType type, final Direction dir) {
             SliceQuery query = queryCache.getQuery(type,dir);
-            tx.getTxHandle().disableCache(); //Disable cache to make sure that schema is only cached once!
-            EntryList result = edgeQuery(schemaId, query, tx.getTxHandle());
-            tx.getTxHandle().enableCache();
-            return result;
+            Configuration customTxOptions = backend.getStoreFeatures().getKeyConsistentTxConfig();
+            StandardTitanTx consistentTx = null;
+            try {
+                consistentTx = StandardTitanGraph.this.newTransaction(new StandardTransactionBuilder(getConfiguration(),
+                        StandardTitanGraph.this, customTxOptions).setGroupName(GraphDatabaseConfiguration.METRICS_SCHEMA_PREFIX_DEFAULT));
+                consistentTx.getTxHandle().disableCache();
+                EntryList result = edgeQuery(schemaId, query, consistentTx.getTxHandle());
+                return result;
+            } finally {
+                TXUtils.rollbackQuietly(consistentTx);
+            }
         }
 
     };

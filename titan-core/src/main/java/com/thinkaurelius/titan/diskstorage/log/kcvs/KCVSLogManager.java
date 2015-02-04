@@ -10,14 +10,14 @@ import com.thinkaurelius.titan.diskstorage.keycolumnvalue.*;
 import com.thinkaurelius.titan.diskstorage.keycolumnvalue.ttl.TTLKVCSManager;
 import com.thinkaurelius.titan.diskstorage.log.Log;
 import com.thinkaurelius.titan.diskstorage.log.LogManager;
-import com.thinkaurelius.titan.diskstorage.log.ReadMarker;
 import com.thinkaurelius.titan.graphdb.configuration.GraphDatabaseConfiguration;
 import com.thinkaurelius.titan.graphdb.configuration.PreInitializeConfigOptions;
 import com.thinkaurelius.titan.graphdb.database.idassigner.placement.PartitionIDRange;
-import com.thinkaurelius.titan.graphdb.database.serialize.Serializer;
 import com.thinkaurelius.titan.graphdb.database.serialize.StandardSerializer;
+import com.thinkaurelius.titan.graphdb.database.serialize.kryo.KryoInstanceCacheImpl;
 import com.thinkaurelius.titan.util.encoding.ConversionHelper;
 import com.thinkaurelius.titan.util.stats.NumberUtil;
+import com.thinkaurelius.titan.util.system.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -83,7 +83,7 @@ public class KCVSLogManager implements LogManager {
     /**
      * Serializer used to (de)-serialize the log messages
      */
-    final Serializer serializer;
+    final StandardSerializer serializer;
 
     /**
      * Keeps track of all open logs
@@ -179,7 +179,8 @@ public class KCVSLogManager implements LogManager {
             this.readPartitionIds=new int[]{0};
         }
 
-        this.serializer = new StandardSerializer(false);
+        KryoInstanceCacheImpl kcache = configuration.get(GraphDatabaseConfiguration.KRYO_INSTANCE_CACHE);
+        this.serializer = new StandardSerializer(false, kcache);
     }
 
     private static void checkValidPartitionId(int partitionId, int partitionBitWidth) {
@@ -211,6 +212,8 @@ public class KCVSLogManager implements LogManager {
          * log.close() -> manager.closedLog(log) -> openLogs.remove(log.getName()).
          */
         for (KCVSLog log : ImmutableMap.copyOf(openLogs).values()) log.close();
+
+        IOUtils.closeQuietly(serializer);
     }
 
 }
