@@ -3,6 +3,7 @@ package com.thinkaurelius.titan.graphdb;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
 import com.thinkaurelius.titan.core.*;
+import com.thinkaurelius.titan.core.attribute.Cmp;
 import com.thinkaurelius.titan.core.attribute.Decimal;
 import com.thinkaurelius.titan.core.attribute.Duration;
 import com.thinkaurelius.titan.core.attribute.Timestamp;
@@ -109,6 +110,8 @@ public abstract class TitanEventualGraphTest extends TitanGraphBaseTest {
                 assertTrue(d.isZeroLength());
             }
         }
+        assertEquals(1,v1.query().has("$timestamp",new Timestamp(100,unit)).propertyCount());
+        assertEquals(1,v1.query().has("$timestamp", Cmp.GREATER_THAN,new Timestamp(10, unit)).propertyCount());
         v1.removeProperty(name);
         v1.setProperty(address, "xyz");
         Edge edge = tx2.addEdge(1, v2, v1, "parent");
@@ -163,6 +166,50 @@ public abstract class TitanEventualGraphTest extends TitanGraphBaseTest {
 
         // Verify that the property value is unchanged
         assertEquals("15", afterTx5.getProperty(age));
+    }
+
+    /**
+     * Tests that timestamped edges and properties can be updated
+     */
+    @Test
+    public void testTimestampedUpdates() {
+        clopen(option(GraphDatabaseConfiguration.STORE_META_TIMESTAMPS, "edgestore"), true,
+                option(GraphDatabaseConfiguration.STORE_META_TTL, "edgestore"), true);
+        final TimeUnit unit = TimeUnit.SECONDS;
+
+        // Transaction 1: Init graph with two vertices, having set "name" and "age" properties
+        TitanTransaction tx = graph.buildTransaction().setCommitTime(100, unit).start();
+        TitanVertex v1 = tx.addVertex();
+        TitanVertex v2 = tx.addVertex();
+        TitanProperty p = v1.addProperty("name","xyz");
+        p.setProperty("time",15);
+        Edge e = v1.addEdge("related",v2);
+        e.setProperty("time",25);
+        tx.commit();
+
+
+        tx = graph.buildTransaction().setCommitTime(200, unit).start();
+        v1 = (TitanVertex)tx.getVertex(v1);
+        assertNotNull(v1);
+        p = Iterables.getOnlyElement(v1.getProperties("name"));
+        e = Iterables.getOnlyElement(v1.getEdges(Direction.OUT, "related"));
+        assertEquals(3, p.getPropertyKeys().size());
+        assertEquals(3, p.getPropertyKeys().size());
+        p.setProperty("time", 115);
+        e.setProperty("time",125);
+        tx.commit();
+
+        tx = graph.buildTransaction().setCommitTime(300, unit).start();
+        v1 = (TitanVertex)tx.getVertex(v1);
+        assertNotNull(v1);
+        p = Iterables.getOnlyElement(v1.getProperties("name"));
+        e = Iterables.getOnlyElement(v1.getEdges(Direction.OUT, "related"));
+        assertEquals(115,p.getProperty("time"));
+        assertEquals(125, e.getProperty("time"));
+        p.remove();
+        e.remove();
+        tx.commit();
+
     }
 
     /**

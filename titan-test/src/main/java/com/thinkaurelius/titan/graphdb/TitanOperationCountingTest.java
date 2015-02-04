@@ -1,6 +1,8 @@
 package com.thinkaurelius.titan.graphdb;
 
 import com.codahale.metrics.Counter;
+import com.codahale.metrics.MetricFilter;
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
@@ -96,6 +98,8 @@ public abstract class TitanOperationCountingTest extends TitanGraphBaseTest {
     public void testReadOperations(boolean cache) {
         metricsPrefix = "schema"+cache;
 
+        resetEdgeCacheCounts();
+
         makeVertexIndexedUniqueKey("uid",Integer.class);
         mgmt.setConsistency(mgmt.getGraphIndex("uid"),ConsistencyModifier.LOCK);
         finishSchema();
@@ -111,6 +115,11 @@ public abstract class TitanOperationCountingTest extends TitanGraphBaseTest {
         verifyStoreMetrics(EDGESTORE_NAME);
         verifyStoreMetrics(INDEXSTORE_NAME, ImmutableMap.of(M_GET_SLICE, 3l, M_ACQUIRE_LOCK, 3l));
 
+        resetMetrics();
+
+        metricsPrefix=GraphDatabaseConfiguration.METRICS_SCHEMA_PREFIX_DEFAULT;
+
+        resetMetrics();
 
         //Test schema caching
         for (int t=0;t<10;t++) {
@@ -152,8 +161,9 @@ public abstract class TitanOperationCountingTest extends TitanGraphBaseTest {
 
             tx.commit();
             //Needs to read on first iteration, after that it doesn't change anymore
-            verifyStoreMetrics(EDGESTORE_NAME,ImmutableMap.of(M_GET_SLICE, 19l));
-            verifyStoreMetrics(INDEXSTORE_NAME, ImmutableMap.of(M_GET_SLICE, 7l, M_ACQUIRE_LOCK, 3l));
+            verifyStoreMetrics(EDGESTORE_NAME, ImmutableMap.of(M_GET_SLICE, 19l));
+            verifyStoreMetrics(INDEXSTORE_NAME,
+                    ImmutableMap.of(M_GET_SLICE, 4l /* name, knows, person, uid */, M_ACQUIRE_LOCK, 0l));
         }
 
         //Create some graph data
@@ -169,7 +179,7 @@ public abstract class TitanOperationCountingTest extends TitanGraphBaseTest {
         verifyStoreMetrics(EDGESTORE_NAME);
         verifyStoreMetrics(INDEXSTORE_NAME, ImmutableMap.of(M_GET_SLICE, 1l, M_ACQUIRE_LOCK, 1l));
 
-        for (int i = 1; i <= 20; i++) {
+        for (int i = 1; i <= 30; i++) {
             metricsPrefix = "op"+i+cache;
             tx = graph.buildTransaction().setGroupName(metricsPrefix).start();
             v = (TitanVertex)Iterables.getOnlyElement(tx.query().has("uid",1).vertices());
@@ -182,7 +192,7 @@ public abstract class TitanOperationCountingTest extends TitanGraphBaseTest {
             if (!cache || i==0) {
                 verifyStoreMetrics(EDGESTORE_NAME, ImmutableMap.of(M_GET_SLICE, 4l));
                 verifyStoreMetrics(INDEXSTORE_NAME, ImmutableMap.of(M_GET_SLICE, 1l));
-            } else if (cache && i>10) { //Needs a couple of iterations for cache to be cleaned
+            } else if (cache && i>20) { //Needs a couple of iterations for cache to be cleaned
                 verifyStoreMetrics(EDGESTORE_NAME);
                 verifyStoreMetrics(INDEXSTORE_NAME);
             }
@@ -192,9 +202,43 @@ public abstract class TitanOperationCountingTest extends TitanGraphBaseTest {
 
     }
 
-
     public static final List<String> STORE_NAMES =
-            ImmutableList.of("edgeStore", "vertexIndexStore", "edgeIndexStore", "idStore");
+            ImmutableList.of(Backend.EDGESTORE_NAME,Backend.INDEXSTORE_NAME,Backend.ID_STORE_NAME,Backend.METRICS_STOREMANAGER_NAME);
+
+    @Test
+    public void testSettingProperty() throws Exception {
+        metricsPrefix = "metrics1";
+
+        mgmt.makePropertyKey("foo").dataType(String.class).cardinality(Cardinality.SINGLE).make();
+        finishSchema();
+
+        TitanVertex v = tx.addVertex();
+        v.setProperty("foo","bar");
+        tx.commit();
+
+
+        TitanTransaction tx = graph.buildTransaction().checkExternalVertexExistence(false).setGroupName(metricsPrefix).start();
+        v = tx.getVertex(v.getLongId());
+        v.setProperty("foo", "bus");
+        tx.commit();
+        verifyStoreMetrics(STORE_NAMES.get(0));
+        verifyStoreMetrics(STORE_NAMES.get(1));
+        verifyStoreMetrics(STORE_NAMES.get(2));
+        verifyStoreMetrics(STORE_NAMES.get(3), ImmutableMap.of(M_MUTATE, 1l));
+
+        tx = graph.buildTransaction().checkExternalVertexExistence(false).setGroupName(metricsPrefix).start();
+        v = tx.getVertex(v.getLongId());
+        v.setProperty("foo","band");
+        assertEquals("band", v.getProperty("foo"));
+        assertEquals(1,Iterables.size(v.getProperties("foo")));
+        assertEquals(1, Iterables.size(v.getProperties()));
+        tx.commit();
+        verifyStoreMetrics(STORE_NAMES.get(0), ImmutableMap.of(M_GET_SLICE, 2l));
+        verifyStoreMetrics(STORE_NAMES.get(1));
+        verifyStoreMetrics(STORE_NAMES.get(2));
+        verifyStoreMetrics(STORE_NAMES.get(3), ImmutableMap.of(M_MUTATE, 2l));
+    }
+
 
     @Test
     @Ignore //TODO: Ignore for now until everything is stable - then do the counting
@@ -397,7 +441,7 @@ public abstract class TitanOperationCountingTest extends TitanGraphBaseTest {
         for (String operation : OPERATION_NAMES) {
             Long count = operationCounts.get(operation);
             if (count==null) count = 0l;
-            assertEquals("On "+storeName+"-"+operation,count.longValue(), metric.getCounter(prefix, storeName, operation, MetricInstrumentedStore.M_CALLS).getCount());
+            assertEquals(Joiner.on(".").join(prefix, storeName, operation, MetricInstrumentedStore.M_CALLS),count.longValue(), metric.getCounter(prefix, storeName, operation, MetricInstrumentedStore.M_CALLS).getCount());
         }
     }
 
@@ -553,6 +597,10 @@ public abstract class TitanOperationCountingTest extends TitanGraphBaseTest {
         counter.dec(counter.getCount());
         counter = MetricManager.INSTANCE.getCounter(metricsPrefix, "edgeStore" + Backend.METRICS_CACHE_SUFFIX, CacheMetricsAction.MISS.getName());
         counter.dec(counter.getCount());
+    }
+
+    private void resetMetrics() {
+        MetricManager.INSTANCE.getRegistry().removeMatching(MetricFilter.ALL);
     }
 
     //#################### MOVE REMAINING TO BENCHMARK ####################

@@ -138,12 +138,23 @@ public class ElasticSearchIndex implements IndexProvider {
     public static final ConfigNamespace ES_EXTRAS_NS =
             new ConfigNamespace(ELASTICSEARCH_NS, "ext", "Overrides for arbitrary elasticsearch.yaml settings", true);
 
+    public static final ConfigNamespace ES_CREATE_NS =
+            new ConfigNamespace(ELASTICSEARCH_NS, "create", "Settings related to index creation");
+
+    public static final ConfigOption<Long> CREATE_SLEEP =
+            new ConfigOption<Long>(ES_CREATE_NS, "sleep",
+            "How long to sleep, in milliseconds, between the successful completion of a (blocking) index " +
+            "creation request and the first use of that index.  This only applies when creating an index in ES, " +
+            "which typically only happens the first time Titan is started on top of ES. If the index Titan is " +
+            "configured to use already exists, then this setting has no effect.", ConfigOption.Type.MASKABLE, 200L);
+
+    public static final ConfigNamespace ES_CREATE_EXTRAS_NS =
+            new ConfigNamespace(ES_CREATE_NS, "ext", "Overrides for arbitrary settings applied at index creation", true);
+
     private static final IndexFeatures ES_FEATURES = new IndexFeatures.Builder().supportsDocumentTTL()
             .setDefaultStringMapping(Mapping.TEXT).supportedStringMappings(Mapping.TEXT, Mapping.TEXTSTRING, Mapping.STRING).build();
 
     public static final int HOST_PORT_DEFAULT = 9300;
-
-
 
     private final Node node;
     private final Client client;
@@ -170,12 +181,37 @@ public class ElasticSearchIndex implements IndexProvider {
         client.admin().cluster().prepareHealth().setTimeout(config.get(HEALTH_REQUEST_TIMEOUT))
                 .setWaitForYellowStatus().execute().actionGet();
 
+        checkForOrCreateIndex(config);
+    }
+
+    /**
+     * If ES already contains this instance's target index, then do nothing.
+     * Otherwise, create the index, then wait {@link #CREATE_SLEEP}.
+     * <p>
+     * The {@code client} field must point to a live, connected client.
+     * The {@code indexName} field must be non-null and point to the name
+     * of the index to check for existence or create.
+     *
+     * @param config the config for this ElasticSearchIndex
+     * @throws java.lang.IllegalArgumentException if the index could not be created
+     */
+    private void checkForOrCreateIndex(Configuration config) {
+        Preconditions.checkState(null != client);
+
         //Create index if it does not already exist
         IndicesExistsResponse response = client.admin().indices().exists(new IndicesExistsRequest(indexName)).actionGet();
         if (!response.isExists()) {
-            CreateIndexResponse create = client.admin().indices().prepareCreate(indexName).execute().actionGet();
+
+            ImmutableSettings.Builder settings = ImmutableSettings.settingsBuilder();
+
+            ElasticSearchSetup.applySettingsFromTitanConf(settings, config, ES_CREATE_EXTRAS_NS);
+
+            CreateIndexResponse create = client.admin().indices().prepareCreate(indexName)
+                    .setSettings(settings.build()).execute().actionGet();
             try {
-                Thread.sleep(200);
+                final long sleep = config.get(CREATE_SLEEP);
+                log.debug("Sleeping {} ms after {} index creation returned from actionGet()", sleep, indexName);
+                Thread.sleep(sleep);
             } catch (InterruptedException e) {
                 throw new TitanException("Interrupted while waiting for index to settle in", e);
             }

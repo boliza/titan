@@ -12,6 +12,7 @@ import com.thinkaurelius.titan.diskstorage.StandardStoreManager;
 import com.thinkaurelius.titan.diskstorage.keycolumnvalue.ttl.TTLKVCSManager;
 import com.thinkaurelius.titan.graphdb.blueprints.BlueprintsDefaultSchemaMaker;
 import com.thinkaurelius.titan.graphdb.database.management.ManagementSystem;
+import com.thinkaurelius.titan.graphdb.database.serialize.kryo.KryoInstanceCacheImpl;
 import com.thinkaurelius.titan.graphdb.types.typemaker.DisableDefaultSchemaMaker;
 import com.thinkaurelius.titan.util.stats.NumberUtil;
 import com.thinkaurelius.titan.diskstorage.util.time.*;
@@ -83,13 +84,12 @@ public class GraphDatabaseConfiguration {
     // ################################################
 
     public static final ConfigNamespace GRAPH_NS = new ConfigNamespace(ROOT_NS,"graph",
-            "Configuration options for transaction handling");
-
+            "General configuration options");
 
     public static final ConfigOption<Boolean> ALLOW_SETTING_VERTEX_ID = new ConfigOption<Boolean>(GRAPH_NS,"set-vertex-id",
             "Whether user provided vertex ids should be enabled and Titan's automatic id allocation be disabled. " +
-                "Useful when operating Titan in concert with another storage system that assigns long ids but disables some" +
-                    "of Titan's advanced features which can lead to inconsistent data. EXPERT FEATURE - USE WITH GREAT CARE.",
+            "Useful when operating Titan in concert with another storage system that assigns long ids but disables some " +
+            "of Titan's advanced features which can lead to inconsistent data. EXPERT FEATURE - USE WITH GREAT CARE.",
             ConfigOption.Type.FIXED, false);
 
     public static final ConfigOption<Timestamps> TIMESTAMP_PROVIDER = new ConfigOption<Timestamps>(GRAPH_NS, "timestamps",
@@ -101,6 +101,22 @@ public class GraphDatabaseConfiguration {
             "default is used and the general default associated with this setting is ignored.  An explicit " +
             "declaration of this setting overrides both the general and backend-specific defaults.",
             ConfigOption.Type.FIXED, Timestamps.class, Timestamps.MICRO);
+
+    public static final ConfigOption<KryoInstanceCacheImpl> KRYO_INSTANCE_CACHE = new ConfigOption<KryoInstanceCacheImpl>(GRAPH_NS, "kryo-instance-cache",
+            "Controls how Kryo instances are created and cached.  Kryo instances are not " +
+            "safe for concurrent access.  Titan is responsible guaranteeing that concurrent threads use separate " +
+            "Kryo instances.  Titan defaults to a Kryo caching approach based on ThreadLocal, as recommended by the " +
+            "Kryo documentation (https://github.com/EsotericSoftware/kryo#threading).  " +
+            "However, these ThreadLocals are not necessarily removed when Titan shuts down.  When Titan runs on an " +
+            "externally-controlled thread pool that reuses threads indefinitely, such as that provided by Tomcat, " +
+            "these unremoved ThreadLocals can potentially cause unintended reference retention for as long as the " +
+            "affected threads remain alive.  In that type of execution environment, consider setting this to " +
+            "CONCURRENT_HASH_MAP.  The CHM implementation releases all references when Titan is shutdown, but it " +
+            "also subject to some synchronization-related performance overhead that the ThreadLocal-based default " +
+            "implementation avoids.  Recent versions of Kryo include a class called KryoPool that offers another way " +
+            "to solve this problem.  However, KryoPool is not supported in Titan 0.5.x because the version of Kryo " +
+            "used by Titan 0.5.x predates KryoPool's introduction.",
+            ConfigOption.Type.MASKABLE, KryoInstanceCacheImpl.class, KryoInstanceCacheImpl.THREAD_LOCAL);
 
     public static final ConfigOption<String> UNIQUE_INSTANCE_ID = new ConfigOption<String>(GRAPH_NS,"unique-instance-id",
             "Unique identifier for this Titan instance.  This must be unique among all instances " +
@@ -794,7 +810,7 @@ public class GraphDatabaseConfiguration {
     public static final ConfigOption<String[]> INDEX_HOSTS = new ConfigOption<String[]>(INDEX_NS,"hostname",
             "The hostname or comma-separated list of hostnames of index backend servers.  " +
             "This is only applicable to some index backends, such as elasticsearch and solr.",
-            ConfigOption.Type.GLOBAL, new String[]{NetworkUtil.getLoopbackAddress()});
+            ConfigOption.Type.MASKABLE, new String[]{NetworkUtil.getLoopbackAddress()});
 
     public static final ConfigOption<Integer> INDEX_PORT = new ConfigOption<Integer>(INDEX_NS,"port",
             "The port on which to connect to index backend servers",
@@ -920,6 +936,7 @@ public class GraphDatabaseConfiguration {
      */
     public static final String METRICS_PREFIX_DEFAULT = "com.thinkaurelius.titan";
     public static final String METRICS_SYSTEM_PREFIX_DEFAULT = METRICS_PREFIX_DEFAULT + "." + "sys";
+    public static final String METRICS_SCHEMA_PREFIX_DEFAULT = METRICS_SYSTEM_PREFIX_DEFAULT + "." + "schema";
 
     /**
      * The default name prefix for Metrics reported by Titan. All metric names
@@ -1745,7 +1762,9 @@ public class GraphDatabaseConfiguration {
 
 
     public static Serializer getSerializer(Configuration configuration) {
-        Serializer serializer = new StandardSerializer(configuration.get(ATTRIBUTE_ALLOW_ALL_SERIALIZABLE));
+        Serializer serializer = new StandardSerializer(
+                configuration.get(ATTRIBUTE_ALLOW_ALL_SERIALIZABLE),
+                configuration.get(KRYO_INSTANCE_CACHE));
         for (RegisteredAttributeClass<?> clazz : getRegisteredAttributeClasses(configuration)) {
             clazz.registerWith(serializer);
         }

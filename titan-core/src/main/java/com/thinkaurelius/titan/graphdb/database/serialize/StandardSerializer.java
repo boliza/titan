@@ -7,25 +7,38 @@ import com.thinkaurelius.titan.diskstorage.ReadBuffer;
 import com.thinkaurelius.titan.diskstorage.StaticBuffer;
 import com.thinkaurelius.titan.diskstorage.WriteBuffer;
 import com.thinkaurelius.titan.diskstorage.util.WriteByteBuffer;
+import com.thinkaurelius.titan.graphdb.configuration.GraphDatabaseConfiguration;
+import com.thinkaurelius.titan.graphdb.database.serialize.kryo.KryoInstanceCacheImpl;
 import com.thinkaurelius.titan.graphdb.database.serialize.kryo.KryoSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Closeable;
+import java.io.IOException;
+
 /**
  * @author Matthias Broecheler (me@matthiasb.com)
  */
-public class StandardSerializer extends StandardAttributeHandling implements Serializer {
+public class StandardSerializer extends StandardAttributeHandling implements Serializer, Closeable {
 
     private static final Logger log = LoggerFactory.getLogger(StandardSerializer.class);
 
     private final KryoSerializer backupSerializer;
 
+    public StandardSerializer(boolean allowCustomSerialization, int maxOutputSize, KryoInstanceCacheImpl kcache) {
+        backupSerializer = new KryoSerializer(getDefaultRegistrations(), !allowCustomSerialization, maxOutputSize, kcache);
+    }
+
     public StandardSerializer(boolean allowCustomSerialization, int maxOutputSize) {
-        backupSerializer = new KryoSerializer(getDefaultRegistrations(), !allowCustomSerialization, maxOutputSize);
+        this(allowCustomSerialization, maxOutputSize, GraphDatabaseConfiguration.KRYO_INSTANCE_CACHE.getDefaultValue());
     }
 
     public StandardSerializer(boolean allowCustomSerialization) {
-        backupSerializer = new KryoSerializer(getDefaultRegistrations(), !allowCustomSerialization);
+        this(allowCustomSerialization, KryoSerializer.DEFAULT_MAX_OUTPUT_SIZE);
+    }
+
+    public StandardSerializer(boolean allowCustomSerialization, KryoInstanceCacheImpl kcache) {
+        this(allowCustomSerialization, KryoSerializer.DEFAULT_MAX_OUTPUT_SIZE, kcache);
     }
 
     public StandardSerializer() {
@@ -92,6 +105,11 @@ public class StandardSerializer extends StandardAttributeHandling implements Ser
     @Override
     public DataOutput getDataOutput(int initialCapacity) {
         return new StandardDataOutput(initialCapacity);
+    }
+
+    @Override
+    public void close() throws IOException {
+        backupSerializer.close();
     }
 
     private class StandardDataOutput extends WriteByteBuffer implements DataOutput {
