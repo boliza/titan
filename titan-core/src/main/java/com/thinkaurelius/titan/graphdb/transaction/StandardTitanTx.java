@@ -37,6 +37,7 @@ import com.thinkaurelius.titan.graphdb.query.graph.JointIndexQuery;
 import com.thinkaurelius.titan.graphdb.query.vertex.MultiVertexCentricQueryBuilder;
 import com.thinkaurelius.titan.graphdb.query.vertex.VertexCentricQuery;
 import com.thinkaurelius.titan.graphdb.query.vertex.VertexCentricQueryBuilder;
+import com.thinkaurelius.titan.graphdb.relations.RelationComparator;
 import com.thinkaurelius.titan.graphdb.relations.RelationIdentifier;
 import com.thinkaurelius.titan.graphdb.relations.StandardEdge;
 import com.thinkaurelius.titan.graphdb.relations.StandardProperty;
@@ -693,10 +694,10 @@ public class StandardTitanTx extends TitanBlueprintsTransaction implements TypeI
     @Override
     public TitanProperty addProperty(TitanVertex vertex, PropertyKey key, Object value) {
         if (key.getCardinality()== Cardinality.SINGLE) return setProperty(vertex, key, value);
-        else return addPropertyInternal(vertex, key, value);
+        else return addPropertyInternal(vertex, key, value, true);
     }
 
-    public TitanProperty addPropertyInternal(TitanVertex vertex, final PropertyKey key, Object value) {
+    public TitanProperty addPropertyInternal(TitanVertex vertex, final PropertyKey key, Object value, boolean verifyCardinalityConstraint) {
         verifyWriteAccess(vertex);
         Preconditions.checkArgument(!(key instanceof ImplicitKey),"Cannot create a property of implicit type: %s",key.getName());
         vertex = ((InternalVertex) vertex).it();
@@ -718,18 +719,20 @@ public class StandardTitanTx extends TitanBlueprintsTransaction implements TypeI
         try {
             //Check uniqueness
             if (config.hasVerifyUniqueness()) {
-                if (cardinality==Cardinality.SINGLE) {
-                    if (!Iterables.isEmpty(query(vertex).type(key).properties()))
+                if (verifyCardinalityConstraint) {
+                    if (cardinality == Cardinality.SINGLE) {
+                        if (!Iterables.isEmpty(query(vertex).type(key).properties()))
                             throw new SchemaViolationException("A property with the given key [%s] already exists on the vertex [%s] and the property key is defined as single-valued", key.getName(), vertex);
-                }
-                if (cardinality==Cardinality.SET) {
-                    if (!Iterables.isEmpty(Iterables.filter(query(vertex).type(key).properties(),new Predicate<TitanProperty>() {
-                        @Override
-                        public boolean apply(@Nullable TitanProperty titanProperty) {
-                            return normalizedValue.equals(titanProperty.getValue());
-                        }
-                    })))
+                    }
+                    if (cardinality == Cardinality.SET) {
+                        if (!Iterables.isEmpty(Iterables.filter(query(vertex).type(key).properties(), new Predicate<TitanProperty>() {
+                            @Override
+                            public boolean apply(@Nullable TitanProperty titanProperty) {
+                                return normalizedValue.equals(titanProperty.getValue());
+                            }
+                        })))
                             throw new SchemaViolationException("A property with the given key [%s] and value [%s] already exists on the vertex and the property key is defined as set-valued", key.getName(), normalizedValue);
+                    }
                 }
                 //Check all unique indexes
                 for (IndexLockTuple lockTuple : uniqueIndexTuples) {
@@ -756,7 +759,9 @@ public class StandardTitanTx extends TitanBlueprintsTransaction implements TypeI
             if (config.hasVerifyUniqueness()) {
                 //Acquire uniqueness lock, remove and add
                 uniqueLock = getLock(vertex, key, Direction.OUT);
-                uniqueLock.lock(LOCK_TIMEOUT);
+            }
+            uniqueLock.lock(LOCK_TIMEOUT);
+            if (config.hasVerifyUniqueness() && ((InternalRelationType)key).getConsistencyModifier()==ConsistencyModifier.LOCK) {
                 vertex.removeProperty(key);
             } else {
                 //Only delete in-memory
@@ -770,7 +775,7 @@ public class StandardTitanTx extends TitanBlueprintsTransaction implements TypeI
                     r.remove();
                 }
             }
-            return addPropertyInternal(vertex, key, value);
+            return addPropertyInternal(vertex, key, value, false);
         } finally {
             uniqueLock.unlock();
         }
@@ -1048,12 +1053,30 @@ public class StandardTitanTx extends TitanBlueprintsTransaction implements TypeI
 
         @Override
         public boolean hasDeletions(VertexCentricQuery query) {
-            return !deletedRelations.isEmpty() && !query.getVertex().isNew() && query.getVertex().hasRemovedRelations();
+            InternalVertex vertex = query.getVertex();
+            if (vertex.isNew()) return false;
+            //In addition to deleted, we need to also check for added relations since those can potentially
+            //replace existing ones due to a multiplicity constraint
+            if (vertex.hasRemovedRelations() || vertex.hasAddedRelations()) return true;
+            return false;
         }
 
         @Override
-        public boolean isDeleted(VertexCentricQuery query, TitanRelation result) {
-            return deletedRelations.containsKey(result.getLongId()) || result != ((InternalRelation) result).it();
+        public boolean isDeleted(final VertexCentricQuery query, final TitanRelation result) {
+            if (deletedRelations.containsKey(result.getLongId()) || result != ((InternalRelation) result).it()) return true;
+            //Check if this relation is replaced by an added one due to a multiplicity constraint
+            InternalRelationType type = (InternalRelationType)result.getType();
+            InternalVertex vertex = query.getVertex();
+            if (type.getMultiplicity().isConstrained() && vertex.hasAddedRelations()) {
+                final RelationComparator comparator = new RelationComparator(vertex);
+                if (!Iterables.isEmpty(vertex.getAddedRelations(new Predicate<InternalRelation>() {
+                    @Override
+                    public boolean apply(@Nullable InternalRelation internalRelation) {
+                        return comparator.compare((InternalRelation) result, internalRelation) == 0;
+                    }
+                }))) return true;
+            }
+            return false;
         }
 
         @Override
