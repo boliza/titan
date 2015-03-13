@@ -115,7 +115,7 @@ public class StandardIDPool implements IDPool {
 
     private void waitForIDRenewer() throws InterruptedException {
 
-        Stopwatch sw = Stopwatch.createStarted();
+        Stopwatch sw = new Stopwatch().start();
         if (null != idBlockFuture) {
             try {
                 idBlockFuture.get(renewTimeout.getLength(SCHEDULING_TIME_UNIT), SCHEDULING_TIME_UNIT);
@@ -167,7 +167,7 @@ public class StandardIDPool implements IDPool {
     private void renewBuffer() {
         Preconditions.checkArgument(nextBlock == null, nextBlock);
         try {
-            Stopwatch sw = Stopwatch.createStarted();
+            Stopwatch sw = new Stopwatch().start();
             IDBlock idBlock = idAuthority.getIDBlock(partition, idNamespace, renewTimeout);
             log.debug("Retrieved ID block from authority on partition({})-namespace({}) in {}", partition, idNamespace, sw.stop());
             Preconditions.checkArgument(idBlock!=null && idBlock.numIds()>0);
@@ -227,11 +227,11 @@ public class StandardIDPool implements IDPool {
 
     private class IDBlockRunnable implements Runnable {
 
-        private final Stopwatch alive = Stopwatch.createStarted();
+        private final Stopwatch alive = new Stopwatch().start();
 
         @Override
         public void run() {
-            Stopwatch running = Stopwatch.createStarted();
+            Stopwatch running = new Stopwatch().start();
             renewBuffer();
             log.debug("Renewed buffer: partition({})-namespace({}), exec time {}, exec+q time {}", partition, idNamespace,
                     running.stop(), alive.stop());
