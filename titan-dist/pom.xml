@@ -3,7 +3,7 @@
     <parent>
         <groupId>com.thinkaurelius.titan</groupId>
         <artifactId>titan</artifactId>
-        <version>0.5.4-SNAPSHOT</version>
+        <version>0.5.5-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <packaging>pom</packaging>
@@ -1071,6 +1071,14 @@
                                 <phase>none</phase>
                             </execution>
                         </executions>
+                    </plugin>
+
+                    <!-- gpg must follow assembly.
+                         Both plugins run in the package phase, so only <plugin> ordering
+                         ensures that signing happens after assembly file generation.
+                         Hence this vacuous stanza down here. -->
+                    <plugin>
+                        <artifactId>maven-gpg-plugin</artifactId>
                     </plugin>
                 </plugins>
             </build>
