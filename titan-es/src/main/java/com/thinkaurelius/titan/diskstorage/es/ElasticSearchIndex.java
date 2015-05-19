@@ -770,7 +770,7 @@ public class ElasticSearchIndex implements IndexProvider {
         //srb.setExplain(true);
 
         //sort field
-        if(query.getParameters() !=null && query.getParameters().length >0) {
+        if(query.getParameters() != null && query.getParameters().length > 0) {
             Iterable<Parameter> sorts = Iterables.filter(ImmutableList.copyOf(query.getParameters()),SORT_PREDICATE);
             for (Parameter sort : sorts) {
                 List<String> sv = Splitter.on(".").splitToList((String) sort.getValue());

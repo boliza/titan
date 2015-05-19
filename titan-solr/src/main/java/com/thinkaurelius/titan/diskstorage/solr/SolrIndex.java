@@ -2,12 +2,17 @@ package com.thinkaurelius.titan.diskstorage.solr;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
+import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 
 import com.thinkaurelius.titan.core.Order;
 import com.thinkaurelius.titan.core.TitanElement;
 import com.thinkaurelius.titan.core.attribute.*;
 import com.thinkaurelius.titan.core.schema.Mapping;
+import com.thinkaurelius.titan.core.schema.Parameter;
 import com.thinkaurelius.titan.diskstorage.*;
 import com.thinkaurelius.titan.diskstorage.configuration.ConfigNamespace;
 import com.thinkaurelius.titan.diskstorage.configuration.ConfigOption;
@@ -51,6 +56,8 @@ import java.io.IOException;
 import java.util.*;
 
 import static com.thinkaurelius.titan.graphdb.configuration.GraphDatabaseConfiguration.*;
+
+import javax.annotation.Nullable;
 
 /**
  * @author Jared Holmberg (jholmberg@bericotechnoLogies.com), Pavel Yaskevich (pavel@thinkaurelius.com)
@@ -136,7 +143,12 @@ public class SolrIndex implements IndexProvider {
             "Maximum number of HTTP connections in total to all Solr servers.",
             ConfigOption.Type.MASKABLE, 100);
 
-
+    private static final Predicate SORT_PREDICATE = new Predicate<Parameter>() {
+        @Override
+        public boolean apply(@Nullable Parameter element) {
+            return element !=null && "sort".equals(element.getKey());
+        }
+    };
 
 
     private static final IndexFeatures SOLR_FEATURES = new IndexFeatures.Builder().supportsDocumentTTL()
@@ -452,6 +464,15 @@ public class SolrIndex implements IndexProvider {
                                 .setIncludeScore(true)
                                 .setStart(query.getOffset())
                                 .setRows(query.hasLimit() ? query.getLimit() : maxResults);
+
+        //sort field
+        if(query.getParameters() != null && query.getParameters().length > 0) {
+            Iterable<Parameter> sorts = Iterables.filter(ImmutableList.copyOf(query.getParameters()), SORT_PREDICATE);
+            for (Parameter sort : sorts) {
+                List<String> sv = Splitter.on(".").splitToList((String) sort.getValue());
+                solrQuery.addSort(sv.get(0), SolrQuery.ORDER.valueOf(sv.get(1).toLowerCase()));
+            }
+        }
 
         try {
             QueryResponse response = solrServer.query(solrQuery);
